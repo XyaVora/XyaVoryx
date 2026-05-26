@@ -1,0 +1,11 @@
+﻿node_modules/
+.pnpm-store/
+coverage/
+dist/
+dist-public/
+*.tsbuildinfo
+bugbot-report.md
+PHASE_*_PLAN.md
+.xyavoryx-data/
+.xyavoryx-eval/
+.tmp-public-release/

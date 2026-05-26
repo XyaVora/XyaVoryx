@@ -1,0 +1,10 @@
+{
+  "outputDir": "dist-public",
+  "selectedCount": 90,
+  "excludedCount": 12,
+  "allowedMarkdown": [
+    "README.md",
+    "CONTRIBUTING.md"
+  ],
+  "generatedAt": "2026-05-26T22:23:10.572Z"
+}

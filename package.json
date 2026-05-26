@@ -1,0 +1,24 @@
+{
+  "name": "xyavoryx",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.0.0",
+  "scripts": {
+    "build": "corepack pnpm -r build",
+    "test": "corepack pnpm -r test",
+    "eval:baseline": "corepack pnpm --filter @xyavoryx/tests exec vitest run src/evaluation-regression-pack.e2e.test.ts",
+    "eval:replay": "corepack pnpm --filter @xyavoryx/tests exec vitest run src/evaluation-replay-consistency.e2e.test.ts",
+    "eval:snapshot": "tsx scripts/evaluation/generate-snapshot.ts",
+    "eval:trend": "tsx scripts/evaluation/compare-trend.ts",
+    "public:build": "node scripts/build_public.mjs",
+    "public:release": "node scripts/publish-public.mjs",
+    "bugbot:review": "tsx scripts/bugbot/pr-review.ts",
+    "bugbot:clean": "tsx scripts/bugbot/pr-review.ts --clean"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}
