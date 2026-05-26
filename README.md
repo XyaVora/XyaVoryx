@@ -110,4 +110,4 @@ Does not:
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for development workflow and commit convention.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development workflow and commit convention.`n`nMaintainers merge changes through pull requests with required checks and explicit review approval.
