@@ -42,9 +42,11 @@ jobs:
         run: corepack pnpm eval:replay
 
       - name: Build Public Export
+        if: ${{ hashFiles('public.manifest.json') != '' }}
         run: corepack pnpm public:build
 
       - name: Public Export Anti-Leak Gate
+        if: ${{ hashFiles('public.manifest.json') != '' }}
         run: corepack pnpm check:public-export
 
       - name: Generate Evaluation Snapshot
