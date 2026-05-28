@@ -281,6 +281,41 @@ describe("bugbot pr-review", () => {
     expect(result.report).not.toContain("Critical path changes detected without accompanying test updates.");
   });
 
+  it("blocks when changed source file has no file-level mapped test update", () => {
+    const repoDir = createTempRepo(
+      { "README.md": "base\n" },
+      {
+        "README.md": "base\n",
+        "packages/tools/src/ioc-extractor-tool.ts": "export const renamed = true;\n",
+        "tests/src/unrelated.test.ts": "import { describe, it, expect } from 'vitest';\ndescribe('unrelated', () => { it('ok', () => { expect(true).toBe(true); }); });\n"
+      }
+    );
+
+    const result = runBugbotReview(repoDir);
+
+    expect(result.exitCode).toBe(2);
+    expect(result.report).toContain(
+      "Missing file-level test mapping for changed source file: packages/tools/src/ioc-extractor-tool.ts"
+    );
+  });
+
+  it("passes when changed source file has file-level mapped test update", () => {
+    const repoDir = createTempRepo(
+      { "README.md": "base\n" },
+      {
+        "README.md": "base\n",
+        "packages/tools/src/ioc-extractor-tool.ts": "export const renamed = true;\n",
+        "tests/src/ioc-extractor-tool.test.ts": "import { describe, it, expect } from 'vitest';\ndescribe('ioc', () => { it('ok', () => { expect(true).toBe(true); }); });\n"
+      }
+    );
+
+    const result = runBugbotReview(repoDir);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.report).toContain("Status: **PASS**");
+    expect(result.report).not.toContain("Missing file-level test mapping for changed source file");
+  });
+
   it("blocks when medium security findings threshold is exceeded", () => {
     const repoDir = createTempRepo(
       { "README.md": "base\n" },

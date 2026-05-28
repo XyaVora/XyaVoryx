@@ -1,4 +1,4 @@
-import { z } from "zod";
+﻿import { z } from "zod";
 import type { FindingSeverity, XyaVoryxTool } from "@xyavoryx/core";
 
 const inputSchema = z.object({

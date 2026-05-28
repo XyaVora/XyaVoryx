@@ -14,5 +14,9 @@
     "@xyavoryx/providers": "workspace:*",
     "@xyavoryx/memory": "workspace:*",
     "@xyavoryx/tools": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
   }
 }

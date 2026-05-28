@@ -139,6 +139,7 @@ const defaultRules = {
   },
   high: {
     disallowedDependencyPatterns: ["better-sqlite3"],
+    apiKeyScanPathPrefixes: ["packages/", "examples/"],
     apiKeyPatterns: [
       "OPENAI_API_KEY",
       "ANTHROPIC_API_KEY",
@@ -165,6 +166,24 @@ const defaultRules = {
         "scripts/bugbot/"
       ],
       testPathPattern: "^tests/src/.*\\.test\\.ts$"
+    },
+    requirePerFileTestMapping: {
+      enabled: true,
+      sourcePatterns: [
+        "^packages/runtime/src/(.+)\\.ts$",
+        "^packages/tools/src/(.+)\\.ts$",
+        "^packages/core/src/(.+)\\.ts$"
+      ],
+      ignoreSourcePatterns: [
+        "^packages/.*/src/index\\.ts$",
+        "^packages/.*/src/.*\\.d\\.ts$"
+      ],
+      testPatterns: [
+        "^tests/src/$1\\.test\\.ts$",
+        "^tests/src/$1\\.e2e\\.test\\.ts$",
+        "^tests/src/.*$1.*\\.test\\.ts$",
+        "^tests/src/.*$1.*\\.e2e\\.test\\.ts$"
+      ]
     },
     mediumFindingsThreshold: {
       enabled: true,
@@ -194,7 +213,8 @@ const defaultRules = {
             "scripts/bugbot/"
           ],
           requiredTestPatterns: [
-            "^tests/src/bugbot-pr-review\\.test\\.ts$"
+            "^tests/src/bugbot-pr-review\\.test\\.ts$",
+            "^tests/src/bugbot-ai-pr-review\\.test\\.ts$"
           ],
           message: "Bugbot scanner changed without matching bugbot test updates."
         }
@@ -254,6 +274,7 @@ const toolImplementationRegex = new RegExp(rules.toolImplementationPattern ?? de
 const disallowedDependencyRegex = compilePatternList(
   rules.high?.disallowedDependencyPatterns ?? defaultRules.high.disallowedDependencyPatterns
 );
+const apiKeyScanPathPrefixes = rules.high?.apiKeyScanPathPrefixes ?? defaultRules.high.apiKeyScanPathPrefixes;
 const apiKeyRegex = compilePatternList(rules.high?.apiKeyPatterns ?? defaultRules.high.apiKeyPatterns, "i");
 const runtimeNondeterministicRegex = compilePatternList(
   rules.high?.runtimeNondeterministicPatterns ?? defaultRules.high.runtimeNondeterministicPatterns
@@ -266,6 +287,8 @@ const coreRuntimeLogicRegex = compilePatternList(
 );
 const emojiRegex = new RegExp(rules.medium?.emojiPattern ?? defaultRules.medium.emojiPattern, "u");
 const testCoverageGate = rules.qualityGates?.requireTestsForCriticalPaths ?? defaultRules.qualityGates.requireTestsForCriticalPaths;
+const perFileTestMappingGate =
+  rules.qualityGates?.requirePerFileTestMapping ?? defaultRules.qualityGates.requirePerFileTestMapping;
 const mediumThresholdGate = rules.qualityGates?.mediumFindingsThreshold ?? defaultRules.qualityGates.mediumFindingsThreshold;
 const ownershipTestGate = rules.qualityGates?.requireOwnershipTestsForSensitivePaths ?? defaultRules.qualityGates.requireOwnershipTestsForSensitivePaths;
 const criticalPathPrefixes = testCoverageGate.criticalPathPrefixes ?? defaultRules.qualityGates.requireTestsForCriticalPaths.criticalPathPrefixes;
@@ -402,6 +425,10 @@ function shouldIgnoreLiteralPatternFile(file) {
   return literalPatternIgnorePathPrefixes.some((prefix) => file.startsWith(prefix));
 }
 
+function shouldScanApiKeyFile(file) {
+  return apiKeyScanPathPrefixes.some((prefix) => file.startsWith(prefix));
+}
+
 function shouldIgnoreSecurityReviewerFile(file) {
   return isBugbotSelfFile(file) || securityReviewerIgnorePathPrefixes.some((prefix) => file.startsWith(prefix));
 }
@@ -421,6 +448,26 @@ function hasMatchingTests(patterns) {
 
   const regexes = patterns.map((pattern) => new RegExp(pattern));
   return changedFiles.some((file) => regexes.some((regex) => regex.test(file)));
+}
+
+function compileRegexList(patterns) {
+  if (!Array.isArray(patterns)) {
+    return [];
+  }
+
+  return patterns.map((pattern) => new RegExp(pattern));
+}
+
+function escapeRegexLiteral(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function expandTemplate(template, groups) {
+  return template.replace(/\$(\d+)/g, (_, indexText) => {
+    const index = Number(indexText) - 1;
+    const value = groups[index] ?? "";
+    return escapeRegexLiteral(value);
+  });
 }
 
 function findAdded(pattern, filePredicate = () => true) {
@@ -445,7 +492,7 @@ if (disallowedDependencyHits.length > 0) {
 
 const apiKeyHits = findAdded(
   apiKeyRegex,
-  (file) => !isBugbotSelfFile(file) && !shouldIgnoreLiteralPatternFile(file)
+  (file) => !isBugbotSelfFile(file) && !shouldIgnoreLiteralPatternFile(file) && shouldScanApiKeyFile(file)
 );
 if (apiKeyHits.length > 0) {
   const locations = apiKeyHits.map((entry) => loc(entry.file, entry.line));
@@ -544,6 +591,54 @@ if (testCoverageGate.enabled && hasCriticalPathChanges() && !hasTestCoverageChan
       location,
       "Critical runtime/security paths changed but no tests were updated in this PR.",
       "Add or update tests under `tests/src/*.test.ts` that cover the changed behavior."
+    );
+  }
+}
+
+if (perFileTestMappingGate.enabled) {
+  const sourceRegexes = compileRegexList(perFileTestMappingGate.sourcePatterns);
+  const ignoreRegexes = compileRegexList(perFileTestMappingGate.ignoreSourcePatterns);
+  const testTemplates = Array.isArray(perFileTestMappingGate.testPatterns)
+    ? perFileTestMappingGate.testPatterns
+    : [];
+
+  const changedTests = changedFiles.filter((file) => testPathRegex.test(file));
+  const mappedSourceFiles = changedFiles.filter((file) => sourceRegexes.some((regex) => regex.test(file)));
+
+  for (const sourceFile of mappedSourceFiles) {
+    if (ignoreRegexes.some((regex) => regex.test(sourceFile))) {
+      continue;
+    }
+
+    const matchedRegex = sourceRegexes.find((regex) => regex.test(sourceFile));
+    if (!matchedRegex) {
+      continue;
+    }
+
+    const match = sourceFile.match(matchedRegex);
+    if (!match) {
+      continue;
+    }
+
+    const groups = match.slice(1);
+    const expectedRegexes = testTemplates.map((template) => new RegExp(expandTemplate(template, groups)));
+    const hasMappedTest = changedTests.some((testFile) => expectedRegexes.some((regex) => regex.test(testFile)));
+
+    if (hasMappedTest) {
+      continue;
+    }
+
+    const location = `${sourceFile}:1`;
+    pushFinding(
+      "high",
+      `Missing file-level test mapping for changed source file: ${sourceFile}`,
+      [location],
+      "architecture"
+    );
+    pushSuggestion(
+      location,
+      "Source file changed without matching file-level test update.",
+      `Add/update a test that matches one of: ${testTemplates.join(", ")}`
     );
   }
 }

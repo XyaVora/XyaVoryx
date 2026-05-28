@@ -1,0 +1,57 @@
+name: Bug report
+description: Report a reproducible defect in runtime, tools, CI, or release flow.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Provide enough detail for deterministic reproduction.
+  - type: input
+    id: area
+    attributes:
+      label: Affected area
+      description: Runtime, Bugbot, CI, Release, Tools, SDK, or Docs.
+      placeholder: runtime
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Clear and short problem statement.
+      placeholder: Unexpected policy behavior when denied tool is configured.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Numbered deterministic steps.
+      placeholder: |
+        1. Run command X
+        2. Use config Y
+        3. Observe output Z
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node version, pnpm version, git commit hash.
+      placeholder: Windows 11, Node 20.x, pnpm 10.x, commit abc123
+    validations:
+      required: true

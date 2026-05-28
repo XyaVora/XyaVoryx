@@ -1,0 +1,69 @@
+name: CI Foundation
+
+on:
+  push:
+    branches:
+      - main
+      - "release/**"
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  ci-foundation:
+    name: ci-foundation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        run: corepack enable
+
+      - name: Install
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Build
+        run: corepack pnpm -r build
+
+      - name: Test
+        run: corepack pnpm -r test
+
+      - name: Deterministic Replay Gate
+        run: corepack pnpm eval:replay
+
+      - name: Detect Public Export Scripts
+        id: export_scripts
+        shell: bash
+        run: |
+          if [ -f scripts/build_public.mjs ] && [ -f scripts/ci/check-public-export.mjs ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build Public Export
+        if: steps.export_scripts.outputs.available == 'true'
+        run: corepack pnpm public:build
+
+      - name: Public Export Anti-Leak Gate
+        if: steps.export_scripts.outputs.available == 'true'
+        run: corepack pnpm check:public-export
+
+      - name: Generate Evaluation Snapshot
+        run: corepack pnpm eval:snapshot
+
+      - name: Upload Evaluation Artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: evaluation-snapshot-${{ github.sha }}
+          path: .xyavoryx-eval/

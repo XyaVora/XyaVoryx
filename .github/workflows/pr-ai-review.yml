@@ -1,0 +1,186 @@
+name: PR AI Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  ai-pr-review:
+    name: ai-pr-review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        run: corepack enable
+
+      - name: Install
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Run AI PR Review
+        id: ai_review
+        continue-on-error: true
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          BUGBOT_BASE_REF: origin/${{ github.base_ref }}
+          BUGBOT_AI_REPORT_PATH: bugbot-ai-report.md
+          BUGBOT_AI_FINDINGS_PATH: bugbot-ai-findings.json
+          BUGBOT_AI_FAIL_ON_HIGH: "0"
+          BUGBOT_AI_REQUIRED: "0"
+          BUGBOT_AI_MODEL: gpt-4.1-mini
+        run: corepack pnpm bugbot:ai-review
+
+      - name: Upload AI Review Artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bugbot-ai-review
+          path: |
+            bugbot-ai-report.md
+            bugbot-ai-findings.json
+
+      - name: Post AI Review Summary Comment
+        if: always()
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const fs = require("node:fs");
+            const marker = "<!-- xyavoryx-ai-pr-review -->";
+            const reportPath = "bugbot-ai-report.md";
+            const fallback = "## XyaVoryx AI PR Review\n\n- Status: **ERROR**\n- Reason: report file is missing.";
+            const report = fs.existsSync(reportPath) ? fs.readFileSync(reportPath, "utf8") : fallback;
+            const body = `${marker}\n${report}`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100
+            });
+
+            const existing = comments.find((item) => item.body && item.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body
+              });
+            }
+
+      - name: Post AI Inline Review Comments
+        if: always()
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const fs = require("node:fs");
+            const findingsPath = "bugbot-ai-findings.json";
+            const inlineMarker = "<!-- xyavoryx-ai-inline -->";
+            if (!fs.existsSync(findingsPath)) {
+              return;
+            }
+
+            const payload = JSON.parse(fs.readFileSync(findingsPath, "utf8"));
+            const findings = Array.isArray(payload?.result?.findings) ? payload.result.findings : [];
+            if (findings.length === 0) {
+              return;
+            }
+
+            const pull_number = context.issue.number;
+            const commit_id = context.payload.pull_request.head.sha;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const existingReviewComments = await github.paginate(github.rest.pulls.listReviewComments, {
+              owner,
+              repo,
+              pull_number,
+              per_page: 100
+            });
+
+            for (const comment of existingReviewComments) {
+              if (comment.body && comment.body.includes(inlineMarker)) {
+                try {
+                  await github.rest.pulls.deleteReviewComment({
+                    owner,
+                    repo,
+                    comment_id: comment.id
+                  });
+                } catch (error) {
+                  core.warning(`Unable to delete old AI inline comment ${comment.id}: ${error.message}`);
+                }
+              }
+            }
+
+            const sorted = findings
+              .filter((finding) => finding && typeof finding.file === "string" && finding.file !== "n/a")
+              .sort((a, b) => {
+                const rank = { critical: 4, high: 3, medium: 2, low: 1 };
+                return (rank[b.severity] || 0) - (rank[a.severity] || 0);
+              })
+              .slice(0, 10);
+
+            for (const finding of sorted) {
+              const line = Number.isInteger(finding.line) ? finding.line : Number.parseInt(String(finding.line), 10);
+              if (!Number.isFinite(line) || line < 1) {
+                continue;
+              }
+
+              const body = [
+                inlineMarker,
+                `**[AI ${String(finding.severity || "low").toUpperCase()}]** ${finding.title || "Finding"}`,
+                "",
+                `Category: ${finding.category || "maintainability"}`,
+                `Evidence: ${finding.evidence || "n/a"}`,
+                `Suggested fix: ${finding.suggested_fix || "n/a"}`
+              ].join("\n");
+
+              try {
+                await github.rest.pulls.createReviewComment({
+                  owner,
+                  repo,
+                  pull_number,
+                  commit_id,
+                  path: finding.file,
+                  line,
+                  side: "RIGHT",
+                  body
+                });
+              } catch (error) {
+                core.warning(`AI inline comment skipped for ${finding.file}:${line} - ${error.message}`);
+              }
+            }
+
+      - name: Optional Fail on High/Critical AI Findings
+        if: always()
+        env:
+          BUGBOT_AI_ENFORCE: ${{ vars.BUGBOT_AI_ENFORCE || '0' }}
+        run: |
+          if [ ! -f bugbot-ai-findings.json ]; then
+            exit 0
+          fi
+
+          if [ "$BUGBOT_AI_ENFORCE" != "1" ]; then
+            exit 0
+          fi
+
+          node -e "const fs=require('node:fs');const p=JSON.parse(fs.readFileSync('bugbot-ai-findings.json','utf8'));const f=(p.result&&Array.isArray(p.result.findings)?p.result.findings:[]);const hit=f.some(x=>x&&['critical','high'].includes(String(x.severity||'').toLowerCase()));if(hit){process.exit(2)}"
