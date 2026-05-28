@@ -21,7 +21,7 @@
     "bugbot:clean": "tsx scripts/bugbot/pr-review.ts --clean"
   },
   "devDependencies": {
-    "@types/node": "^22.10.1",
+    "@types/node": "^25.9.1",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vitest": "^2.1.8"
