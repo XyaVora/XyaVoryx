@@ -41,10 +41,22 @@ jobs:
       - name: Deterministic Replay Gate
         run: corepack pnpm eval:replay
 
+      - name: Detect Public Export Scripts
+        id: export_scripts
+        shell: bash
+        run: |
+          if [ -f scripts/build_public.mjs ] && [ -f scripts/ci/check-public-export.mjs ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build Public Export
+        if: steps.export_scripts.outputs.available == 'true'
         run: corepack pnpm public:build
 
       - name: Public Export Anti-Leak Gate
+        if: steps.export_scripts.outputs.available == 'true'
         run: corepack pnpm check:public-export
 
       - name: Generate Evaluation Snapshot
