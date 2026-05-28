@@ -1,0 +1,16 @@
+# Default owners
+* @XyaVora
+
+# Runtime and policy core
+/packages/runtime/ @XyaVora
+/packages/core/ @XyaVora
+
+# Security and review automation
+/scripts/bugbot/ @XyaVora
+/.github/workflows/ @XyaVora
+/SECURITY.md @XyaVora
+
+# Public release controls
+/scripts/release/ @XyaVora
+/scripts/ci/check-public-export.mjs @XyaVora
+/public.manifest.json @XyaVora

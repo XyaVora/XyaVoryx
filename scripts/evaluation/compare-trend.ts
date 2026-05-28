@@ -1,89 +1,150 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import type { EvaluationMetricTrend, EvaluationSuiteResult } from "../../packages/core/src";
 
-interface TrendMetric {
-  metric: string;
-  previous: number;
-  current: number;
-  delta: number;
-  better: boolean;
+interface CliArgs {
+  basePath: string;
+  headPath: string;
+  outputPath: string;
+  failOnRegression: boolean;
 }
 
-interface SuiteResult {
-  passRate: number;
-  failed: number;
-  quality: {
-    checkPassRate: number;
-    traceCompletenessRate: number;
-    policyComplianceRate: number;
+function parseArgs(argv: string[]): CliArgs {
+  const args: CliArgs = {
+    basePath: "",
+    headPath: "",
+    outputPath: "evaluation-trend-report.md",
+    failOnRegression: false
   };
-}
 
-function parseArg(flag: string): string | undefined {
-  const index = process.argv.indexOf(flag);
-  if (index === -1 || index + 1 >= process.argv.length) {
-    return undefined;
+  for (let i = 0; i < argv.length; i += 1) {
+    const token = argv[i];
+    const value = argv[i + 1];
+
+    if (token === "--base" && value) {
+      args.basePath = value;
+      i += 1;
+      continue;
+    }
+
+    if (token === "--head" && value) {
+      args.headPath = value;
+      i += 1;
+      continue;
+    }
+
+    if (token === "--output" && value) {
+      args.outputPath = value;
+      i += 1;
+      continue;
+    }
+
+    if (token === "--fail-on-regression") {
+      args.failOnRegression = true;
+      continue;
+    }
   }
-  return process.argv[index + 1];
-}
 
-function loadSuite(path: string): SuiteResult {
-  const raw = readFileSync(resolve(path), "utf8");
-  return JSON.parse(raw) as SuiteResult;
-}
-
-function compare(metric: string, previous: number, current: number, higherIsBetter = true): TrendMetric {
-  const delta = Math.round((current - previous) * 1_000_000) / 1_000_000;
-  const better = higherIsBetter ? delta >= 0 : delta <= 0;
-  return { metric, previous, current, delta, better };
-}
-
-function main(): void {
-  const basePath = parseArg("--base");
-  const headPath = parseArg("--head");
-  const outputPath = parseArg("--output") ?? "evaluation-trend-report.md";
-
-  if (!basePath || !headPath) {
-    throw new Error("Usage: tsx scripts/evaluation/compare-trend.ts --base <path> --head <path> [--output <path>]");
+  if (!args.basePath || !args.headPath) {
+    throw new Error("Usage: tsx scripts/evaluation/compare-trend.ts --base <path> --head <path> [--output <path>] [--fail-on-regression]");
   }
 
-  const base = loadSuite(basePath);
-  const head = loadSuite(headPath);
+  return args;
+}
 
-  const metrics: TrendMetric[] = [
-    compare("pass_rate", base.passRate, head.passRate, true),
-    compare("check_pass_rate", base.quality.checkPassRate, head.quality.checkPassRate, true),
-    compare("trace_completeness", base.quality.traceCompletenessRate, head.quality.traceCompletenessRate, true),
-    compare("policy_compliance", base.quality.policyComplianceRate, head.quality.policyComplianceRate, true),
-    compare("failed_scenarios", base.failed, head.failed, false)
+function loadSuite(path: string): EvaluationSuiteResult {
+  const absolute = resolve(path);
+  const raw = readFileSync(absolute, "utf8");
+  return JSON.parse(raw) as EvaluationSuiteResult;
+}
+
+function buildMetricRows(metrics: EvaluationMetricTrend[]): string {
+  if (metrics.length === 0) {
+    return "| n/a | n/a | n/a | n/a | n/a |\n";
+  }
+
+  return metrics
+    .map((metric) => {
+      const direction = metric.direction === "up" ? "up" : metric.direction === "down" ? "down" : "flat";
+      return `| ${metric.metric} | ${metric.previous} | ${metric.current} | ${metric.delta} (${direction}) | ${metric.better ? "yes" : "no"} |`;
+    })
+    .join("\n")
+    .concat("\n");
+}
+
+function findMetric(summary: EvaluationSuiteResult["quality"], key: keyof EvaluationSuiteResult["quality"]): number {
+  return summary[key];
+}
+
+function buildFallbackMetrics(base: EvaluationSuiteResult, head: EvaluationSuiteResult): EvaluationMetricTrend[] {
+  const entries: Array<{ key: keyof EvaluationSuiteResult["quality"]; direction: "higher" | "lower"; metric: string }> = [
+    { key: "checkPassRate", direction: "higher", metric: "check_pass_rate" },
+    { key: "traceCompletenessRate", direction: "higher", metric: "trace_completeness" },
+    { key: "policyComplianceRate", direction: "higher", metric: "policy_compliance" }
   ];
 
-  const regressions = metrics.filter((item) => !item.better && item.delta !== 0).length;
-  const improvements = metrics.filter((item) => item.better && item.delta !== 0).length;
-  const verdict = regressions > 0 ? "REGRESSED" : improvements > 0 ? "IMPROVED" : "STABLE";
+  return entries.map((entry) => {
+    const previous = findMetric(base.quality, entry.key);
+    const current = findMetric(head.quality, entry.key);
+    const delta = Math.round((current - previous) * 1_000_000) / 1_000_000;
+    const better = entry.direction === "higher" ? delta >= 0 : delta <= 0;
 
-  const rows = metrics
-    .map((item) => `| ${item.metric} | ${item.previous} | ${item.current} | ${item.delta} | ${item.better ? "yes" : "no"} |`)
-    .join("\n");
+    return {
+      metric: entry.metric,
+      previous,
+      current,
+      delta,
+      direction: delta === 0 ? "flat" : delta > 0 ? "up" : "down",
+      better
+    };
+  });
+}
 
-  const report = [
+function buildReport(base: EvaluationSuiteResult, head: EvaluationSuiteResult): { markdown: string; regressions: number } {
+  const trend = head.trend;
+  const metrics = trend?.metrics ?? buildFallbackMetrics(base, head);
+  const regressions = trend?.regressions ?? metrics.filter((metric) => !metric.better && metric.delta !== 0).length;
+  const improvements = trend?.improvements ?? metrics.filter((metric) => metric.better && metric.delta !== 0).length;
+  const verdict = trend?.verdict ?? (regressions > 0 ? "regressed" : improvements > 0 ? "improved" : "stable");
+
+  const markdown = [
     "# Evaluation Trend Report",
     "",
-    `- Verdict: **${verdict}**`,
+    `- Verdict: **${verdict.toUpperCase()}**`,
     `- Improvements: **${improvements}**`,
     `- Regressions: **${regressions}**`,
     "",
-    "## Metrics",
+    "## Suite Overview",
+    "",
+    `| Suite | Pass Rate | Failed Scenarios | Check Pass Rate | Trace Completeness | Policy Compliance |`,
+    `| --- | ---: | ---: | ---: | ---: | ---: |`,
+    `| Base | ${base.passRate} | ${base.failed} | ${base.quality.checkPassRate} | ${base.quality.traceCompletenessRate} | ${base.quality.policyComplianceRate} |`,
+    `| Head | ${head.passRate} | ${head.failed} | ${head.quality.checkPassRate} | ${head.quality.traceCompletenessRate} | ${head.quality.policyComplianceRate} |`,
+    "",
+    "## Metric Trends",
     "",
     "| Metric | Previous | Current | Delta | Better |",
     "| --- | ---: | ---: | ---: | --- |",
-    rows,
-    "",
+    buildMetricRows(metrics),
     "<!-- xyavoryx-evaluation-trend -->"
   ].join("\n");
 
-  writeFileSync(resolve(outputPath), report, "utf8");
-  console.log(`Evaluation trend report written to: ${resolve(outputPath)}`);
+  return { markdown, regressions };
+}
+
+function main(): void {
+  const args = parseArgs(process.argv.slice(2));
+  const baseSuite = loadSuite(args.basePath);
+  const headSuite = loadSuite(args.headPath);
+  const { markdown, regressions } = buildReport(baseSuite, headSuite);
+
+  writeFileSync(resolve(args.outputPath), markdown, "utf8");
+  console.log(`Evaluation trend report written to: ${resolve(args.outputPath)}`);
+  console.log(`Regressions: ${regressions}`);
+
+  if (args.failOnRegression && regressions > 0) {
+    process.exitCode = 1;
+  }
 }
 
 main();

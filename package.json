@@ -10,9 +10,14 @@
     "eval:replay": "corepack pnpm --filter @xyavoryx/tests exec vitest run src/evaluation-replay-consistency.e2e.test.ts",
     "eval:snapshot": "tsx scripts/evaluation/generate-snapshot.ts",
     "eval:trend": "tsx scripts/evaluation/compare-trend.ts",
+    "check:public-export": "node scripts/ci/check-public-export.mjs",
+    "ci:foundation": "corepack pnpm -r build && corepack pnpm -r test && corepack pnpm eval:baseline && corepack pnpm eval:replay && corepack pnpm public:build && corepack pnpm check:public-export",
     "public:build": "node scripts/build_public.mjs",
     "public:release": "node scripts/publish-public.mjs",
+    "public:finalize": "node scripts/publish-public.mjs --finalize-release",
+    "release:manifest": "node scripts/release/generate-release-manifest.mjs",
     "bugbot:review": "tsx scripts/bugbot/pr-review.ts",
+    "bugbot:ai-review": "tsx scripts/bugbot/ai-pr-review.ts",
     "bugbot:clean": "tsx scripts/bugbot/pr-review.ts --clean"
   },
   "devDependencies": {

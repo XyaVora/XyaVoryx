@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import { TestOutputParserTool } from "../../packages/tools/src/test-output-parser-tool";
 
 describe("TestOutputParserTool", () => {

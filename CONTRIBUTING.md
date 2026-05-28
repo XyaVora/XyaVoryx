@@ -1,18 +1,18 @@
-﻿# Contributing
+# Contributing
 
-Cảm ơn bạn đã đóng góp cho XyaVoryx.
+Thank you for contributing to XyaVoryx.
 
 ## Commit Convention
 
-XyaVoryx tuân theo chuẩn Conventional Commits.
+XyaVoryx follows Conventional Commits.
 
-Định dạng commit message:
+Commit message format:
 
 ```text
 type(scope): message
 ```
 
-Các `type` được phép:
+Allowed `type` values:
 
 - `feat`
 - `fix`
@@ -25,7 +25,7 @@ Các `type` được phép:
 - `perf`
 - `security`
 
-Ví dụ:
+Examples:
 
 - `feat(runtime): complete deterministic Phase 1 foundation`
 - `fix(policy): enforce denied tool precedence`
@@ -33,3 +33,18 @@ Ví dụ:
 - `test(runtime): add execution trace coverage`
 - `refactor(core): simplify workflow interfaces`
 - `ci(workflows): add pnpm test pipeline`
+
+## Branch Protection Baseline
+
+Public and private repositories should enforce PR-only merge to `main` with required status checks.
+
+Required checks:
+
+- `ci-foundation`
+- `bugbot-review`
+- `evaluation-trend`
+- `windows-sanity`
+
+For release-related pull requests, also require:
+
+- `release-preflight`
