@@ -86,7 +86,8 @@ tests/
 
 ## Quality and Governance
 
-- PR checks: CI foundation, bugbot review, AI advisory review, evaluation trend, Windows sanity
+- PR checks: CI foundation, bugbot review, evaluation trend, Windows sanity
+- AI advisory review is available as a manual workflow when maintainers explicitly request it
 - release flow: preflight validation, artifact checksums, provenance attestation
 - contribution standard: Conventional Commits and CODEOWNERS-based review routing
 
