@@ -457,6 +457,9 @@ export class AgentRunner {
         description: toolFinding.description,
         sourceTool: toolName,
         createdAt: this.deps.runtimeContext.now(),
+        evidence: toolFinding.evidence,
+        cwe: toolFinding.cwe,
+        owasp: toolFinding.owasp,
         data: {
           tool: toolName,
           ...(toolFinding.data ?? {})
@@ -577,14 +580,25 @@ export class AgentRunner {
     title: string;
     severity: "low" | "medium" | "high";
     description: string;
+    evidence?: string;
+    cwe?: string;
+    owasp?: string;
     data?: Record<string, unknown>;
   }> {
     if (!value || typeof value !== "object") {
       return [];
     }
 
-    const candidate = value as { findings?: unknown };
-    if (!Array.isArray(candidate.findings)) {
+    const candidate = value as { findings?: unknown; anomalies?: unknown };
+    let rawItems: any[] = [];
+    let isAnomaly = false;
+
+    if (Array.isArray(candidate.findings)) {
+      rawItems = candidate.findings;
+    } else if (Array.isArray(candidate.anomalies)) {
+      rawItems = candidate.anomalies;
+      isAnomaly = true;
+    } else {
       return [];
     }
 
@@ -592,31 +606,95 @@ export class AgentRunner {
       title: string;
       severity: "low" | "medium" | "high";
       description: string;
+      evidence?: string;
+      cwe?: string;
+      owasp?: string;
       data?: Record<string, unknown>;
     }> = [];
 
-    for (const item of candidate.findings) {
+    for (const item of rawItems) {
       if (!item || typeof item !== "object") {
         continue;
       }
 
-      const raw = item as Record<string, unknown>;
-      if (
-        typeof raw.title !== "string" ||
-        typeof raw.description !== "string" ||
-        (raw.severity !== "low" && raw.severity !== "medium" && raw.severity !== "high")
-      ) {
-        continue;
-      }
+      const raw = item as Record<string, any>;
 
-      normalized.push({
-        title: raw.title,
-        description: raw.description,
-        severity: raw.severity,
-        data: raw.data && typeof raw.data === "object"
-          ? (raw.data as Record<string, unknown>)
-          : undefined
-      });
+      if (isAnomaly) {
+        const severityMap: Record<string, "low" | "medium" | "high"> = {
+          low: "low",
+          medium: "medium",
+          high: "high",
+          critical: "high"
+        };
+        const severity = severityMap[raw.severity as string] || "medium";
+
+        // 1. Title derivation
+        let title = "Security anomaly detected";
+        if (typeof raw.type === "string" && raw.type) {
+          title = raw.type;
+        } else if (typeof raw.service === "string" && raw.service) {
+          title = `Insecure open port: ${raw.port || "unknown"} (${raw.service})`;
+        }
+
+        // 2. Description derivation
+        let description = "Security issue detected in local audit";
+        if (typeof raw.riskDescription === "string" && raw.riskDescription) {
+          description = raw.riskDescription;
+        } else if (typeof raw.evidence === "string" && raw.evidence) {
+          description = `Audit alert: ${raw.evidence}`;
+        } else if (typeof raw.preview === "string" && raw.preview) {
+          description = `Leaked secret in ${raw.file || "file"}:${raw.line || "line"}`;
+        } else if (typeof raw.description === "string" && raw.description) {
+          description = raw.description;
+        }
+
+        // 3. CWE and OWASP derivation
+        const cweStr = Array.isArray(raw.cwe) ? raw.cwe.join(", ") : typeof raw.cwe === "string" ? raw.cwe : undefined;
+        const owaspStr = Array.isArray(raw.owasp) ? raw.owasp.join(", ") : typeof raw.owasp === "string" ? raw.owasp : undefined;
+
+        // 4. Evidence derivation
+        const evidenceStr = typeof raw.evidence === "string"
+          ? raw.evidence
+          : typeof raw.preview === "string"
+            ? raw.preview
+            : raw.file && raw.line
+              ? `${raw.file}:${raw.line}`
+              : undefined;
+
+        normalized.push({
+          title,
+          description,
+          severity,
+          evidence: evidenceStr,
+          cwe: cweStr,
+          owasp: owaspStr,
+          data: {
+            ...raw,
+            cwe: raw.cwe,
+            owasp: raw.owasp
+          }
+        });
+      } else {
+        if (
+          typeof raw.title !== "string" ||
+          typeof raw.description !== "string" ||
+          (raw.severity !== "low" && raw.severity !== "medium" && raw.severity !== "high")
+        ) {
+          continue;
+        }
+
+        normalized.push({
+          title: raw.title,
+          description: raw.description,
+          severity: raw.severity,
+          evidence: typeof raw.evidence === "string" ? raw.evidence : undefined,
+          cwe: typeof raw.cwe === "string" ? raw.cwe : Array.isArray(raw.cwe) ? raw.cwe.join(", ") : undefined,
+          owasp: typeof raw.owasp === "string" ? raw.owasp : Array.isArray(raw.owasp) ? raw.owasp.join(", ") : undefined,
+          data: raw.data && typeof raw.data === "object"
+            ? (raw.data as Record<string, unknown>)
+            : undefined
+        });
+      }
     }
 
     return normalized;

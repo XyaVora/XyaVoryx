@@ -70,6 +70,10 @@ export const LocalPortAnalyzerTool: XyaVoryxTool<z.infer<typeof inputSchema>, Lo
       }
     }
 
+    if (portsToScan.length > 100) {
+      portsToScan = portsToScan.slice(0, 100);
+    }
+
     // Probes local ports concurrently with socket timeout limit
     const promises = portsToScan.map(async (port) => {
       const isOpen = await checkPort(port);
@@ -135,6 +139,11 @@ function checkPort(port: number): Promise<boolean> {
       resolve(false);
     });
 
-    socket.connect(port, "127.0.0.1");
+    try {
+      socket.connect(port, "127.0.0.1");
+    } catch (err) {
+      socket.destroy();
+      resolve(false);
+    }
   });
 }
