@@ -1,0 +1,56 @@
+name: Release Preflight
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/release-tag.yml"
+      - "scripts/release/**"
+      - "scripts/ci/check-public-export.mjs"
+      - "public.manifest.json"
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        run: corepack enable
+
+      - name: Install
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Run Release Readiness Gate
+        env:
+          RELEASE_READINESS_REPORT_PATH: release-readiness-report.json
+        run: corepack pnpm release:readiness
+
+      - name: Write Preflight Summary
+        run: |
+          node -e 'const fs=require("node:fs");const r=JSON.parse(fs.readFileSync("release-readiness-report.json","utf8"));const lines=["# Release Preflight Summary","","- Release readiness: passed","- Branch: "+r.branch,"- Latest semver tag: "+(r.latestSemverTag ?? "none"),"- Pipeline checks executed: "+(r.pipeline.executed ? "yes" : "no"),"- Commit: ${{ github.sha }}"];fs.writeFileSync("release-preflight-summary.md",lines.join("\n"),"utf8");'
+          
+      - name: Upload Readiness Report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-readiness-report
+          path: release-readiness-report.json
+
+      - name: Upload Preflight Summary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-preflight-summary
+          path: release-preflight-summary.md

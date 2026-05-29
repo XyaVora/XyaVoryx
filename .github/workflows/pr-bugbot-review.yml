@@ -1,0 +1,101 @@
+﻿name: PR Bugbot Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  bugbot-review:
+    name: bugbot-review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        run: corepack enable
+
+      - name: Install
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Build
+        run: corepack pnpm -r build
+
+      - name: Test
+        run: corepack pnpm -r test
+
+      - name: Deterministic Replay Gate
+        run: corepack pnpm eval:replay
+
+      - name: Run Bugbot Rule Scan
+        run: |
+          corepack pnpm bugbot:review || true
+
+      - name: Upload Bugbot Report Artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bugbot-report
+          path: bugbot-report.md
+
+      - name: Post Bugbot Comment
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const fs = require('node:fs');
+            const marker = '<!-- xyavoryx-bugbot-review -->';
+            const body = `${marker}\n` + fs.readFileSync('bugbot-report.md', 'utf8');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100
+            });
+
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body
+              });
+            }
+
+      - name: Fail on High Severity Findings
+        run: |
+          if grep -q "Status: \*\*BLOCKED\*\*" bugbot-report.md; then
+            echo "Bugbot found high severity issues"
+            exit 1
+          fi
+
+      - name: Enforce Security Reviewer High Gate
+        run: |
+          if grep -A 50 "### Cursor Security Agent: Security Reviewer" bugbot-report.md | grep -q "\[HIGH\]"; then
+            echo "Security Reviewer detected HIGH severity findings"
+            exit 1
+          fi
+
+      - name: Cleanup Temporary Report
+        if: always()
+        run: |
+          rm -f bugbot-report.md

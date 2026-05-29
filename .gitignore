@@ -1,0 +1,11 @@
+﻿node_modules/
+coverage/
+dist/
+*.tsbuildinfo
+bugbot-report.md
+bugbot-ai-report.md
+bugbot-ai-findings.json
+PHASE_*_PLAN.md
+.xyavoryx-data/
+.xyavoryx-eval/
+dist-public/

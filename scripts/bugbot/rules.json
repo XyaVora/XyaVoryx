@@ -1,0 +1,260 @@
+{
+  "selfScanIgnoreFiles": [
+    "scripts/bugbot/pr-review.mjs",
+    "scripts/bugbot/pr-review.ts",
+    "scripts/bugbot/rules.json",
+    ".cursor/BUGBOT.md"
+  ],
+  "literalPatternIgnorePathPrefixes": [
+    "tests/"
+  ],
+  "securityReviewer": {
+    "ignorePathPrefixes": [
+      "tests/",
+      "docs/"
+    ],
+    "gating": {
+      "blockOn": [
+        {
+          "domain": "security",
+          "severity": "high"
+        },
+        {
+          "domain": "runtime",
+          "severity": "high"
+        },
+        {
+          "domain": "architecture",
+          "severity": "high"
+        }
+      ]
+    },
+    "rules": [
+      {
+        "id": "SEC-TLS-001",
+        "severity": "high",
+        "title": "TLS certificate verification is disabled",
+        "cwe": "CWE-295",
+        "owasp": "A02:2021 - Cryptographic Failures",
+        "pattern": "rejectUnauthorized\\s*:\\s*false|NODE_TLS_REJECT_UNAUTHORIZED\\s*=\\s*['\\\"]?0",
+        "why": "Disabling TLS verification enables man-in-the-middle interception.",
+        "suggestion": "Remove insecure TLS overrides and trust only valid certificates."
+      },
+      {
+        "id": "SEC-INJECT-001",
+        "severity": "high",
+        "title": "Potential command injection in process execution",
+        "cwe": "CWE-78",
+        "owasp": "A03:2021 - Injection",
+        "pattern": "exec(?:Sync)?\\s*\\([^\\n]*\\$\\{|spawn(?:Sync)?\\s*\\([^\\n]*\\+",
+        "why": "Interpolated shell commands can execute attacker-controlled input.",
+        "suggestion": "Use argument-array APIs and validate/allowlist user inputs."
+      },
+      {
+        "id": "SEC-EVAL-001",
+        "severity": "high",
+        "title": "Dynamic code execution detected",
+        "cwe": "CWE-95",
+        "owasp": "A03:2021 - Injection",
+        "pattern": "\\beval\\s*\\(|new\\s+Function\\s*\\(",
+        "why": "Dynamic code execution can execute untrusted content.",
+        "suggestion": "Remove eval-like execution and replace with explicit logic."
+      },
+      {
+        "id": "SEC-CRYPTO-001",
+        "severity": "medium",
+        "title": "Weak hash algorithm detected",
+        "cwe": "CWE-327",
+        "owasp": "A02:2021 - Cryptographic Failures",
+        "pattern": "createHash\\s*\\(\\s*['\\\"](?:md5|sha1)['\\\"]\\s*\\)",
+        "why": "MD5/SHA1 are weak for integrity/security-sensitive use cases.",
+        "suggestion": "Use SHA-256 or stronger algorithm where security is required."
+      },
+      {
+        "id": "SEC-SECRET-001",
+        "severity": "high",
+        "title": "Potential hardcoded secret or private key marker",
+        "cwe": "CWE-798",
+        "owasp": "A02:2021 - Cryptographic Failures",
+        "pattern": "AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|-----BEGIN (?:RSA|EC|DSA|OPENSSH) PRIVATE KEY-----",
+        "why": "Hardcoded credentials and private keys expose critical secrets.",
+        "suggestion": "Remove secrets from source and load via secure secret manager."
+      },
+      {
+        "id": "SEC-PATH-001",
+        "severity": "high",
+        "title": "Potential path traversal risk from unsanitized path composition",
+        "cwe": "CWE-22",
+        "owasp": "A01:2021 - Broken Access Control",
+        "pattern": "path\\.(?:join|resolve)\\s*\\([^\\n]*(?:req\\.|input\\.|params\\.|query\\.|body\\.)",
+        "why": "Composing file paths directly from untrusted input can escape intended directories.",
+        "suggestion": "Normalize and validate path against an allowlisted base directory before file operations."
+      },
+      {
+        "id": "SEC-DESER-001",
+        "severity": "high",
+        "title": "Potential deserialization of untrusted data",
+        "cwe": "CWE-502",
+        "owasp": "A08:2021 - Software and Data Integrity Failures",
+        "pattern": "\\b(?:yaml\\.load|jsyaml\\.load|deserialize\\s*\\(|unserialize\\s*\\(|pickle\\.loads?\\s*\\()",
+        "why": "Deserializing untrusted data can trigger arbitrary code paths or object abuse.",
+        "suggestion": "Use safe parser modes and strict schema validation before deserialization."
+      },
+      {
+        "id": "SEC-TMP-001",
+        "severity": "medium",
+        "title": "Potential insecure temporary file usage",
+        "cwe": "CWE-377",
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "pattern": "fs\\.(?:writeFile|writeFileSync|createWriteStream|openSync)\\s*\\(\\s*['\\\"][^'\\\"]*(?:/tmp/|\\\\temp\\\\)[^'\\\"]*['\\\"]",
+        "why": "Predictable or globally writable temporary paths can be abused for file race or overwrite attacks.",
+        "suggestion": "Use secure temp-file APIs and randomized names with restricted permissions."
+      },
+      {
+        "id": "SEC-SSRF-001",
+        "severity": "high",
+        "title": "Potential SSRF via untrusted outbound request target",
+        "cwe": "CWE-918",
+        "owasp": "A10:2021 - Server-Side Request Forgery",
+        "pattern": "\\b(?:fetch|axios\\.(?:get|post|request)|http\\.request|https\\.request)\\s*\\([^\\n]*(?:req\\.|input\\.|params\\.|query\\.|body\\.)",
+        "why": "Outbound request destination appears to be derived from untrusted input.",
+        "suggestion": "Enforce allowlist for outbound hosts and validate URL scheme/host before request."
+      },
+      {
+        "id": "SEC-CORS-001",
+        "severity": "high",
+        "title": "Potential insecure CORS configuration",
+        "cwe": "CWE-942",
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "pattern": "origin\\s*:\\s*['\\\"]\\*['\\\"].*credentials\\s*:\\s*true|credentials\\s*:\\s*true.*origin\\s*:\\s*['\\\"]\\*['\\\"]",
+        "why": "Wildcard CORS origin with credentials may expose sensitive authenticated responses.",
+        "suggestion": "Use strict origin allowlist and avoid credentials with wildcard origins."
+      },
+      {
+        "id": "SEC-JWT-001",
+        "severity": "high",
+        "title": "Potential weak or hardcoded JWT secret",
+        "cwe": "CWE-321",
+        "owasp": "A02:2021 - Cryptographic Failures",
+        "pattern": "jwt\\.sign\\s*\\([^\\n]*['\\\"](?:secret|changeme|password|devsecret|testsecret|123456)['\\\"]",
+        "why": "Hardcoded weak JWT signing secrets can be brute-forced or leaked from source control.",
+        "suggestion": "Load strong JWT secret from secure configuration and rotate compromised secrets."
+      }
+    ]
+  },
+  "high": {
+    "disallowedDependencyPatterns": [
+      "better-sqlite3"
+    ],
+    "apiKeyScanPathPrefixes": [
+      "packages/",
+      "examples/"
+    ],
+    "apiKeyPatterns": [
+      "OPENAI_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "GOOGLE_API_KEY",
+      "api\\s*key\\s+is\\s+required",
+      "requires\\s+an?\\s+api\\s*key"
+    ],
+    "runtimeNondeterministicPatterns": [
+      "\\bDate\\.now\\(",
+      "\\bMath\\.random\\(",
+      "\\bsetTimeout\\(",
+      "\\bsetInterval\\("
+    ],
+    "offensiveTermPatterns": [
+      "\\bpayload\\b",
+      "\\breverse shell\\b",
+      "\\bbeacon\\b",
+      "\\bc2\\b",
+      "\\bexploit\\b",
+      "\\bprivilege escalation\\b"
+    ],
+    "networkCallPatterns": [
+      "\\bfetch\\(",
+      "\\baxios\\.",
+      "\\bhttp\\.request\\b",
+      "\\bhttps\\.request\\b"
+    ]
+  },
+  "medium": {
+    "emojiPattern": "\\p{Extended_Pictographic}",
+    "planningPatterns": [
+      "autonomous planning",
+      "tool selection by llm",
+      "dynamic planner"
+    ],
+    "coreRuntimeLogicPatterns": [
+      "\\bclass\\s+\\w+",
+      "\\bnew\\s+\\w+\\(",
+      "\\basync\\s+function\\s+\\w+\\("
+    ]
+  },
+  "qualityGates": {
+    "requireTestsForCriticalPaths": {
+      "enabled": true,
+      "criticalPathPrefixes": [
+        "packages/runtime/src/",
+        "packages/tools/src/",
+        "packages/core/src/",
+        "scripts/bugbot/"
+      ],
+      "testPathPattern": "^tests/src/.*\\.test\\.ts$"
+    },
+    "requirePerFileTestMapping": {
+      "enabled": true,
+      "sourcePatterns": [
+        "^packages/runtime/src/(.+)\\.ts$",
+        "^packages/tools/src/(.+)\\.ts$",
+        "^packages/core/src/(.+)\\.ts$"
+      ],
+      "ignoreSourcePatterns": [
+        "^packages/.*/src/index\\.ts$",
+        "^packages/.*/src/.*\\.d\\.ts$"
+      ],
+      "testPatterns": [
+        "^tests/src/$1\\.test\\.ts$",
+        "^tests/src/$1\\.e2e\\.test\\.ts$",
+        "^tests/src/.*$1.*\\.test\\.ts$",
+        "^tests/src/.*$1.*\\.e2e\\.test\\.ts$"
+      ]
+    },
+    "mediumFindingsThreshold": {
+      "enabled": true,
+      "blockAtTotal": 5,
+      "blockAtSecurity": 2
+    },
+    "requireOwnershipTestsForSensitivePaths": {
+      "enabled": true,
+      "rules": [
+        {
+          "id": "OWNER-RUNTIME-POLICY",
+          "pathPrefixes": [
+            "packages/runtime/src/policy-engine.ts",
+            "packages/runtime/src/agent-runner.ts",
+            "packages/runtime/src/tool-executor.ts",
+            "packages/runtime/src/deterministic-planner.ts"
+          ],
+          "requiredTestPatterns": [
+            "^tests/src/policy-engine\\.test\\.ts$",
+            "^tests/src/agent-runner\\.e2e\\.test\\.ts$"
+          ],
+          "message": "Sensitive runtime/policy files changed without matching ownership tests."
+        },
+        {
+          "id": "OWNER-BUGBOT",
+          "pathPrefixes": [
+            "scripts/bugbot/"
+          ],
+          "requiredTestPatterns": [
+            "^tests/src/bugbot-pr-review\\.test\\.ts$",
+            "^tests/src/bugbot-ai-pr-review\\.test\\.ts$"
+          ],
+          "message": "Bugbot scanner changed without matching bugbot test updates."
+        }
+      ]
+    }
+  },
+  "toolImplementationPattern": "^packages/tools/src/.*-tool\\.ts$"
+}

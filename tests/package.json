@@ -1,0 +1,21 @@
+{
+  "name": "@xyavoryx/tests",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "node -e \"process.stdout.write('tests build skipped\\n')\"",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@xyavoryx/core": "workspace:*",
+    "@xyavoryx/runtime": "workspace:*",
+    "@xyavoryx/memory": "workspace:*",
+    "@xyavoryx/providers": "workspace:*",
+    "@xyavoryx/tools": "workspace:*",
+    "@xyavoryx/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

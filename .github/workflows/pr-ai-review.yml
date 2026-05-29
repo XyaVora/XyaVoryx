@@ -1,0 +1,67 @@
+name: AI Review Manual
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: "Base branch used for diff comparison (e.g. main)"
+        required: false
+        default: "main"
+      fail_on_high:
+        description: "Fail workflow when AI reports high/critical findings"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+
+jobs:
+  ai-pr-review:
+    name: ai-pr-review-manual
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        run: corepack enable
+
+      - name: Install
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Resolve AI Failure Mode
+        id: mode
+        shell: bash
+        run: |
+          if [ "${{ inputs.fail_on_high }}" = "true" ]; then
+            echo "fail=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "fail=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run AI Review
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          BUGBOT_BASE_REF: origin/${{ inputs.base_ref }}
+          BUGBOT_AI_REPORT_PATH: bugbot-ai-report.md
+          BUGBOT_AI_FINDINGS_PATH: bugbot-ai-findings.json
+          BUGBOT_AI_FAIL_ON_HIGH: ${{ steps.mode.outputs.fail }}
+          BUGBOT_AI_REQUIRED: "0"
+          BUGBOT_AI_MODEL: gpt-4.1-mini
+        run: corepack pnpm bugbot:ai-review
+
+      - name: Upload AI Review Artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bugbot-ai-review-manual
+          path: |
+            bugbot-ai-report.md
+            bugbot-ai-findings.json

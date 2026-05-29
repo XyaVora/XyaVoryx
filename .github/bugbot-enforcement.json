@@ -1,0 +1,11 @@
+{
+  "blockSeverities": [
+    "high"
+  ],
+  "blockOnGateHits": true,
+  "mediumFindingsThreshold": {
+    "enabled": true,
+    "blockAtTotal": 5,
+    "blockAtSecurity": 2
+  }
+}

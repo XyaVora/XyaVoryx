@@ -1,0 +1,48 @@
+name: Feature request
+description: Propose an improvement aligned with XyaVoryx roadmap and deterministic design.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep proposals scoped and explicit about policy, determinism, and test impact.
+  - type: input
+    id: area
+    attributes:
+      label: Area
+      description: Runtime, Memory, Provider, Tools, SDK, CI, or Docs.
+      placeholder: tools
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What practical problem does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the minimum viable change.
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints and non-goals
+      description: State what should not change.
+      placeholder: Must remain deterministic; no mandatory cloud dependency.
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation plan
+      description: Tests, CI gates, and docs updates required.
+      placeholder: Add unit tests in tests/src, update docs/runtime, run ci:foundation.
+    validations:
+      required: true

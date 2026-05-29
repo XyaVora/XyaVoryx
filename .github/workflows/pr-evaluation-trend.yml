@@ -1,0 +1,105 @@
+name: PR Evaluation Trend
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  evaluation-trend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR Head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        run: corepack enable
+
+      - name: Install (Head)
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Build (Head)
+        run: corepack pnpm -r build
+
+      - name: Generate Snapshot (Head)
+        env:
+          XYAVORYX_EVAL_DIR: .xyavoryx-eval-head
+        run: corepack pnpm eval:snapshot
+
+      - name: Create Base Worktree
+        run: git worktree add ../xyavoryx-base ${{ github.event.pull_request.base.sha }}
+
+      - name: Install (Base)
+        working-directory: ../xyavoryx-base
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Build (Base)
+        working-directory: ../xyavoryx-base
+        run: corepack pnpm -r build
+
+      - name: Generate Snapshot (Base)
+        working-directory: ../xyavoryx-base
+        env:
+          XYAVORYX_EVAL_DIR: .xyavoryx-eval-base
+        run: corepack pnpm eval:snapshot
+
+      - name: Compare Trend
+        run: >
+          corepack pnpm exec tsx scripts/evaluation/compare-trend.ts
+          --base ../xyavoryx-base/.xyavoryx-eval-base/baseline-latest.json
+          --head .xyavoryx-eval-head/baseline-latest.json
+          --output evaluation-trend-report.md
+
+      - name: Upload Evaluation Trend Report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: evaluation-trend-report
+          path: evaluation-trend-report.md
+
+      - name: Post Evaluation Trend Comment
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const fs = require("node:fs");
+            const marker = "<!-- xyavoryx-evaluation-trend -->";
+            const body = fs.readFileSync("evaluation-trend-report.md", "utf8");
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100
+            });
+
+            const existing = comments.find((comment) => comment.body && comment.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body
+              });
+            }
+
+      - name: Cleanup Base Worktree
+        if: always()
+        run: git worktree remove ../xyavoryx-base --force

@@ -1,0 +1,50 @@
+name: Windows Sanity
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  windows-sanity:
+    name: windows-sanity
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        run: corepack enable
+
+      - name: Enforce LF Checkout Behavior
+        run: git config core.autocrlf false
+
+      - name: Install
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Build
+        run: corepack pnpm -r build
+
+      - name: Test
+        run: corepack pnpm -r test
+
+      - name: Deterministic Replay Gate
+        run: corepack pnpm eval:replay
+
+      - name: Verify Clean Working Tree
+        shell: powershell
+        run: |
+          $dirty = git status --porcelain
+          if ($dirty) {
+            git status --short
+            throw "Working tree became dirty during Windows sanity workflow."
+          }
