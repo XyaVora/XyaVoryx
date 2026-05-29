@@ -181,7 +181,7 @@ export class AgentRunner {
       let stepCompleted = false;
 
       for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-        const decision = this.deps.policyEngine.validate({
+        const decision = await this.deps.policyEngine.validate({
           toolName: tool.name,
           toolMetadata: tool.metadata,
           executionCount,
@@ -993,7 +993,7 @@ export class AgentRunner {
         const resolvedStepInput = decision.input;
         const scopedPolicy = this.resolveScopedPolicy(policy, tool.name, `auto-${iterations}`);
 
-        const validationDecision = this.deps.policyEngine.validate({
+        const validationDecision = await this.deps.policyEngine.validate({
           toolName: tool.name,
           toolMetadata: tool.metadata,
           executionCount,

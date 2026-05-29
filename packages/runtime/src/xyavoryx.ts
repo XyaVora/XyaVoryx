@@ -8,7 +8,8 @@ import type {
   MemoryStore,
   PolicyConfig,
   XyaVoryxTool,
-  LLMProvider
+  LLMProvider,
+  PolicyValidationInput
 } from "@xyavoryx/core";
 import { AgentRunner } from "./agent-runner";
 import { ConsoleLogger } from "./console-logger";
@@ -27,6 +28,7 @@ export interface XyaVoryxOptions {
   logger?: Logger;
   runtimeContext?: DeterministicRuntimeContext;
   policyProfiles?: PolicyProfileMap;
+  approvalHook?: (input: PolicyValidationInput) => Promise<boolean> | boolean;
 }
 
 export class XyaVoryx {
@@ -44,6 +46,9 @@ export class XyaVoryx {
     this.logger = options.logger ?? new ConsoleLogger();
     this.runtimeContext = options.runtimeContext ?? new DeterministicRuntimeContext();
     this.policyProfiles = new PolicyProfileRegistry(options.policyProfiles);
+    if (options.approvalHook) {
+      this.policyEngine.setApprovalHook(options.approvalHook);
+    }
   }
 
   registerTool(tool: XyaVoryxTool): this {

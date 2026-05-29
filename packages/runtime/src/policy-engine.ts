@@ -1,7 +1,17 @@
 import type { PolicyDecision, PolicyValidationInput } from "@xyavoryx/core";
 
 export class PolicyEngine {
-  validate(input: PolicyValidationInput): PolicyDecision {
+  private approvalHook?: (input: PolicyValidationInput) => Promise<boolean> | boolean;
+
+  constructor(options?: { approvalHook?: (input: PolicyValidationInput) => Promise<boolean> | boolean }) {
+    this.approvalHook = options?.approvalHook;
+  }
+
+  setApprovalHook(hook: (input: PolicyValidationInput) => Promise<boolean> | boolean): void {
+    this.approvalHook = hook;
+  }
+
+  async validate(input: PolicyValidationInput): Promise<PolicyDecision> {
     const policy = input.policy;
 
     if (policy?.deniedTools?.includes(input.toolName)) {
@@ -37,6 +47,23 @@ export class PolicyEngine {
         allowed: false,
         reason: `Filesystem access blocked for tool: ${input.toolName}`
       };
+    }
+
+    if (this.approvalHook) {
+      try {
+        const approved = await this.approvalHook(input);
+        if (!approved) {
+          return {
+            allowed: false,
+            reason: `Tool execution denied by user policy approval gate: ${input.toolName}`
+          };
+        }
+      } catch (err) {
+        return {
+          allowed: false,
+          reason: `Policy approval gate threw an error: ${err instanceof Error ? err.message : String(err)}`
+        };
+      }
     }
 
     return { allowed: true };
