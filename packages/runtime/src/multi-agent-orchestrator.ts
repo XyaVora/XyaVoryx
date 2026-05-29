@@ -3,6 +3,7 @@ import type { XyaVoryx } from "./xyavoryx";
 
 export interface MultiAgentOrchestrationResult {
   sessionId: string;
+  caseIds: string[];
   status: "completed" | "failed" | "blocked";
   findings: Finding[];
   reports: { agentName: string; report: string }[];
@@ -20,6 +21,7 @@ export class MultiAgentOrchestrator {
     const sessionId = (initialContext?.sessionId as string) ?? "orchestration-session-" + Math.floor(Math.random() * 1000000);
     const findings: Finding[] = [];
     const reports: { agentName: string; report: string }[] = [];
+    const caseIds: string[] = [];
     
     let status: MultiAgentOrchestrationResult["status"] = "completed";
     let accumulatedObservations: string[] = [];
@@ -45,6 +47,8 @@ export class MultiAgentOrchestrator {
         task: startingTask,
         context: currentContext
       });
+
+      caseIds.push(result.caseId);
 
       reports.push({
         agentName: agent.name,
@@ -111,6 +115,7 @@ export class MultiAgentOrchestrator {
 
     return {
       sessionId,
+      caseIds,
       status,
       findings,
       reports,

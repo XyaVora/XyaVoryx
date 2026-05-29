@@ -538,7 +538,7 @@ async function main(): Promise<void> {
             runContext
           );
 
-          caseIds.push(pipelineResult.sessionId); // Track session ID
+          caseIds.push(...pipelineResult.caseIds); // Track agent case IDs
 
           console.log(`\n${colors.fgGreen}${colors.bright}[SUCCESS] Multi-Agent Orchestration Pipeline completed!${colors.reset}`);
           console.log(`\n${colors.fgCyan}${colors.bright}[REPORT] Consolidated Master Security Report:${colors.reset}`);
