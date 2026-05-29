@@ -2,7 +2,7 @@ import type { AgentInput, AgentConfig, WorkflowPlan } from "@xyavoryx/core";
 
 export class DeterministicPlanner {
   buildPlan(agent: AgentConfig, input: AgentInput): WorkflowPlan {
-    const steps = agent.workflow.map((step) => {
+    const steps = (agent.workflow ?? []).map((step) => {
       let resolvedInput: unknown;
 
       if (step.inputFrom === "rawInput") {

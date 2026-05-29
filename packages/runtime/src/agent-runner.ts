@@ -12,9 +12,12 @@ import type {
   WorkflowCondition,
   WorkflowFailureAction,
   XyaVoryxEvent,
-  XyaVoryxEventType
+  XyaVoryxEventType,
+  AutonomousDecision,
+  XyaVoryxTool
 } from "@xyavoryx/core";
 import { DeterministicPlanner } from "./deterministic-planner";
+import { AutonomousPlanner } from "./autonomous-planner";
 import { DeterministicRuntimeContext } from "./deterministic-runtime-context";
 import { EventBus } from "./event-bus";
 import { PolicyEngine } from "./policy-engine";
@@ -90,6 +93,12 @@ export class AgentRunner {
     emitEvent("agent.status_changed", { status: "running" });
 
     const policy: PolicyConfig | undefined = this.deps.policyProfiles.resolve(agent.policyProfile, agent.policies);
+
+    const isAutonomous = agent.plannerMode === "autonomous" || !agent.workflow || agent.workflow.length === 0;
+    if (isAutonomous) {
+      return this.runAutonomous(agent, input, sessionId, caseId, startedAt, policy, emitEvent, traceRecorder);
+    }
+
     const plan = this.deps.planner.buildPlan(agent, input);
     const stepIndexById = new Map<string, number>(
       plan.steps.map((step, index) => [step.id, index])
@@ -900,5 +909,250 @@ export class AgentRunner {
 
     const merged = new Set<string>([...(base ?? []), ...(override ?? [])]);
     return Array.from(merged);
+  }
+
+  private async runAutonomous(
+    agent: AgentConfig,
+    input: AgentInput,
+    sessionId: string,
+    caseId: string,
+    startedAt: string,
+    policy: PolicyConfig | undefined,
+    emitEvent: (type: XyaVoryxEventType, payload?: Record<string, unknown>) => XyaVoryxEvent,
+    traceRecorder: TraceRecorder
+  ): Promise<AgentResult> {
+    const providerName = agent.provider ?? "mock-llm";
+    const provider = this.deps.providerRegistry.get(providerName);
+    if (!provider) {
+      throw new Error(`LLM Provider not found: ${providerName}`);
+    }
+
+    const planner = new AutonomousPlanner(provider);
+    const maxIterations = typeof agent.maxIterations === "number" && agent.maxIterations > 0
+      ? Math.floor(agent.maxIterations)
+      : 5;
+
+    let executionCount = 0;
+    let status: AgentResult["status"] = "completed";
+    let iterations = 0;
+    let finalReport = "";
+
+    while (iterations < maxIterations) {
+      iterations += 1;
+
+      const observations = await this.deps.memory.getObservations(caseId);
+      const findings = await this.deps.memory.getFindings(caseId);
+
+      const availableTools = agent.tools
+        .map((name) => this.deps.toolRegistry.get(name))
+        .filter((t): t is XyaVoryxTool => !!t);
+
+      const decision = await planner.planNextAction(agent, input, {
+        observations,
+        findings,
+        availableTools
+      });
+
+      this.deps.logger.info("Autonomous planner decision", {
+        iteration: iterations,
+        thought: decision.thought,
+        action: decision.action
+      });
+
+      emitEvent("workflow.step_recovered" as any, {
+        thought: decision.thought,
+        action: decision.action,
+        tool: decision.tool
+      });
+
+      if (decision.action === "finish") {
+        finalReport = decision.report ?? `Goal achieved autonomously in ${iterations} iterations.`;
+        break;
+      }
+
+      if (decision.action === "call") {
+        const toolName = decision.tool;
+        if (!toolName) {
+          status = "failed";
+          emitEvent("workflow.recovery_failed" as any, {
+            reason: "autonomous_planner_missing_tool_name"
+          });
+          break;
+        }
+
+        const tool = this.deps.toolRegistry.get(toolName);
+        if (!tool) {
+          status = "failed";
+          emitEvent("tool.failed", {
+            tool: toolName,
+            error: `Tool not found: ${toolName}`
+          });
+          break;
+        }
+
+        const resolvedStepInput = decision.input;
+        const scopedPolicy = this.resolveScopedPolicy(policy, tool.name, `auto-${iterations}`);
+
+        const validationDecision = this.deps.policyEngine.validate({
+          toolName: tool.name,
+          toolMetadata: tool.metadata,
+          executionCount,
+          policy: scopedPolicy
+        });
+
+        emitEvent("policy.checked", {
+          stepId: `auto-${iterations}`,
+          tool: tool.name,
+          attempt: 1,
+          executionCount,
+          allowed: validationDecision.allowed,
+          reason: validationDecision.reason,
+          scope: {
+            hasAgentPolicy: !!policy,
+            hasToolPolicy: !!policy?.toolPolicies?.[tool.name],
+            hasStepPolicy: false
+          }
+        });
+
+        if (!validationDecision.allowed) {
+          const blockedAt = this.deps.runtimeContext.now();
+          const toolRecord = this.createExecutionRecord({
+            tool: tool.name,
+            input: resolvedStepInput,
+            status: "blocked",
+            startedAt: blockedAt,
+            completedAt: this.deps.runtimeContext.now(),
+            error: validationDecision.reason
+          });
+
+          traceRecorder.recordToolExecution(toolRecord);
+          await this.deps.memory.appendExecutionRecord(caseId, toolRecord);
+          emitEvent("policy.blocked", {
+            tool: tool.name,
+            reason: validationDecision.reason,
+            attempt: 1
+          });
+          status = "blocked";
+          break;
+        }
+
+        const started = this.deps.runtimeContext.now();
+        emitEvent("tool.started", {
+          stepId: `auto-${iterations}`,
+          tool: tool.name,
+          attempt: 1,
+          maxAttempts: 1
+        });
+
+        try {
+          const output = await this.deps.toolExecutor.execute(
+            tool,
+            resolvedStepInput,
+            {
+              agentId: agent.id ?? agent.name,
+              sessionId,
+              caseId,
+              memory: this.deps.memory,
+              logger: this.deps.logger
+            },
+            tool.metadata?.timeoutMs ?? scopedPolicy?.defaultTimeoutMs
+          );
+
+          const completedAt = this.deps.runtimeContext.now();
+          const toolRecord = this.createExecutionRecord({
+            tool: tool.name,
+            input: resolvedStepInput,
+            output,
+            status: "completed",
+            startedAt: started,
+            completedAt
+          });
+          executionCount += 1;
+
+          traceRecorder.recordToolExecution(toolRecord);
+          await this.deps.memory.appendExecutionRecord(caseId, toolRecord);
+
+          emitEvent("tool.completed", {
+            tool: tool.name,
+            attempt: 1
+          });
+
+          await this.addObservation(caseId, sessionId, tool.name, output, emitEvent);
+          const findings = await this.deriveFindings(caseId, sessionId, tool.name, output, emitEvent);
+
+          if (findings.length > 0) {
+            this.deps.logger.info("Findings created", {
+              tool: tool.name,
+              count: findings.length
+            });
+          }
+        } catch (error) {
+          const completedAt = this.deps.runtimeContext.now();
+          const message = error instanceof Error ? error.message : String(error);
+          const toolRecord = this.createExecutionRecord({
+            tool: tool.name,
+            input: resolvedStepInput,
+            status: "failed",
+            startedAt: started,
+            completedAt,
+            error: message
+          });
+          executionCount += 1;
+
+          traceRecorder.recordToolExecution(toolRecord);
+          await this.deps.memory.appendExecutionRecord(caseId, toolRecord);
+
+          emitEvent("tool.failed", {
+            tool: tool.name,
+            error: message,
+            attempt: 1,
+            willRetry: false
+          });
+
+          status = "failed";
+          break;
+        }
+      }
+    }
+
+    if (iterations >= maxIterations && status !== "blocked" && finalReport === "") {
+      status = "failed";
+      emitEvent("workflow.recovery_failed" as any, {
+        reason: "max_iterations_reached",
+        maxIterations
+      });
+    }
+
+    await this.deps.memory.updateSessionStatus(sessionId, status);
+    emitEvent("agent.status_changed", { status });
+
+    const findings = await this.deps.memory.getFindings(caseId);
+    const report = finalReport || this.buildReport(agent.name, status, findings);
+    emitEvent("report.generated", { findingCount: findings.length });
+
+    if (status === "completed") {
+      emitEvent("agent.completed", { status });
+    } else {
+      emitEvent("agent.failed", { status });
+    }
+
+    const completedAt = this.deps.runtimeContext.now();
+    traceRecorder.complete(completedAt);
+    const trace = traceRecorder.snapshot();
+    await this.deps.memory.saveTrace(caseId, trace);
+
+    return {
+      agentName: agent.name,
+      caseId,
+      sessionId,
+      status,
+      findings,
+      trace,
+      report,
+      metadata: {
+        iterations,
+        stepsExecuted: trace.toolExecutions.length
+      }
+    };
   }
 }

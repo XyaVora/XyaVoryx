@@ -54,3 +54,11 @@ export interface ExecutablePlanStep {
 export interface WorkflowPlan {
   steps: ExecutablePlanStep[];
 }
+
+export interface AutonomousDecision {
+  thought: string;
+  action: "call" | "finish";
+  tool?: string;
+  input?: unknown;
+  report?: string;
+}

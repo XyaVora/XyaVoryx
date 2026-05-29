@@ -18,7 +18,21 @@ export class MockLLMProvider implements LLMProvider {
   }
 
   async generate(request: LLMGenerateRequest): Promise<LLMGenerateResponse> {
-    const content = this.responses[request.prompt] ?? this.defaultResponse;
+    let content = this.responses[request.prompt];
+
+    if (!content) {
+      for (const [key, value] of Object.entries(this.responses)) {
+        if (request.prompt.includes(key)) {
+          content = value;
+          break;
+        }
+      }
+    }
+
+    if (!content) {
+      content = this.defaultResponse;
+    }
+
     return {
       content,
       metadata: {

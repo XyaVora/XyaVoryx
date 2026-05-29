@@ -1,6 +1,7 @@
 export * from "./agent-runner";
 export * from "./console-logger";
 export * from "./deterministic-planner";
+export * from "./autonomous-planner";
 export * from "./deterministic-runtime-context";
 export * from "./evaluation-harness";
 export * from "./event-bus";

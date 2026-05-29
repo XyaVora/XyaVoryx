@@ -9,11 +9,12 @@ export interface AgentConfig {
   description?: string;
   goal: string;
   tools: string[];
-  workflow: WorkflowStep[];
+  workflow?: WorkflowStep[];
   provider?: string;
   maxIterations?: number;
   policyProfile?: string;
   policies?: PolicyConfig;
+  plannerMode?: "deterministic" | "autonomous";
 }
 
 export interface AgentInput {
