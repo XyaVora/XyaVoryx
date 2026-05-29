@@ -68,7 +68,7 @@ async function main(): Promise<void> {
   }
 
   // 2. Prompt for API keys
-  console.log(`${colors.bright}🔐 Step 1: Configure API Credentials${colors.reset}`);
+  console.log(`${colors.bright}[STEP 1] Configure API Credentials${colors.reset}`);
   console.log(`${colors.fgGray}Press Enter to skip or keep the existing value in brackets [].${colors.reset}\n`);
 
   const prevAnthropic = existingVars["ANTHROPIC_API_KEY"] || "";
@@ -76,15 +76,15 @@ async function main(): Promise<void> {
   const prevOpenai = existingVars["OPENAI_API_KEY"] || "";
 
   const displayAnthropic = prevAnthropic ? ` [${prevAnthropic.substring(0, 8)}...${prevAnthropic.slice(-4)}]` : "";
-  const anthropicInput = await askQuestion(`${colors.fgCyan}👉 Enter Anthropic API Key (Claude)${displayAnthropic}: ${colors.reset}`);
+  const anthropicInput = await askQuestion(`${colors.fgCyan}> Enter Anthropic API Key (Claude)${displayAnthropic}: ${colors.reset}`);
   const anthropicKey = anthropicInput || prevAnthropic;
 
   const displayGemini = prevGemini ? ` [${prevGemini.substring(0, 8)}...${prevGemini.slice(-4)}]` : "";
-  const geminiInput = await askQuestion(`${colors.fgCyan}👉 Enter Google Gemini API Key${displayGemini}: ${colors.reset}`);
+  const geminiInput = await askQuestion(`${colors.fgCyan}> Enter Google Gemini API Key${displayGemini}: ${colors.reset}`);
   const geminiKey = geminiInput || prevGemini;
 
   const displayOpenai = prevOpenai ? ` [${prevOpenai.substring(0, 8)}...${prevOpenai.slice(-4)}]` : "";
-  const openaiInput = await askQuestion(`${colors.fgCyan}👉 Enter OpenAI API Key (ChatGPT)${displayOpenai}: ${colors.reset}`);
+  const openaiInput = await askQuestion(`${colors.fgCyan}> Enter OpenAI API Key (ChatGPT)${displayOpenai}: ${colors.reset}`);
   const openaiKey = openaiInput || prevOpenai;
 
   // 3. Write variables to .env
@@ -99,10 +99,10 @@ async function main(): Promise<void> {
   }
   fs.writeFileSync(envPath, envLines.join("\n") + "\n", "utf8");
 
-  console.log(`\n${colors.fgGreen}✅ API keys successfully saved to .env file.${colors.reset}\n`);
+  console.log(`\n${colors.fgGreen}[SUCCESS] API keys successfully saved to .env file.${colors.reset}\n`);
 
   // 4. Build Workspace
-  console.log(`${colors.bright}🛠️  Step 2: Build Workspace Packages${colors.reset}`);
+  console.log(`${colors.bright}[STEP 2] Build Workspace Packages${colors.reset}`);
   console.log(`${colors.fgGray}Compiling TypeScript workspace configurations...${colors.reset}`);
 
   const buildResult = spawnSync("npx", ["pnpm", "build"], {
@@ -111,14 +111,14 @@ async function main(): Promise<void> {
   });
 
   if (buildResult.status === 0) {
-    console.log(`${colors.fgGreen}✅ Workspace built successfully.${colors.reset}\n`);
+    console.log(`${colors.fgGreen}[SUCCESS] Workspace built successfully.${colors.reset}\n`);
   } else {
-    console.log(`${colors.fgRed}⚠️  Workspace build encountered an issue, but setup completed.${colors.reset}`);
+    console.log(`${colors.fgRed}[WARNING] Workspace build encountered an issue, but setup completed.${colors.reset}`);
     console.log(buildResult.stderr || buildResult.stdout);
   }
 
   // 5. Success
-  console.log(`${colors.bright}🎉 Setup Complete! You are ready to start.${colors.reset}`);
+  console.log(`${colors.bright}[SUCCESS] Setup Complete! You are ready to start.${colors.reset}`);
   console.log(`${colors.fgGray}================================================================================${colors.reset}`);
   console.log(`To launch the premium interactive XyaVoryx CLI shell, run:`);
   console.log(`  ${colors.fgGreen}npm run cli${colors.reset}  or  ${colors.fgGreen}npx tsx scripts/xyavoryx-cli.ts${colors.reset}`);
