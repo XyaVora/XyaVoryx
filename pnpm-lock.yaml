@@ -33,6 +33,28 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
 
+  packages/cli:
+    dependencies:
+      '@xyavoryx/core':
+        specifier: workspace:*
+        version: link:../core
+      '@xyavoryx/memory':
+        specifier: workspace:*
+        version: link:../memory
+      '@xyavoryx/providers':
+        specifier: workspace:*
+        version: link:../providers
+      '@xyavoryx/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@xyavoryx/tools':
+        specifier: workspace:*
+        version: link:../tools
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   packages/core:
     dependencies:
       zod:
