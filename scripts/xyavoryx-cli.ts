@@ -7,7 +7,8 @@ import {
   GeminiLLMProvider,
   OpenAILLMProvider,
   AnthropicLLMProvider,
-  MockLLMProvider
+  MockLLMProvider,
+  OllamaLLMProvider
 } from "@xyavoryx/providers";
 import {
   ShellExecutorTool,
@@ -15,7 +16,8 @@ import {
   IOCExtractorTool,
   EmailHeaderAnalyzerTool,
   StacktraceParserTool,
-  TestOutputParserTool
+  TestOutputParserTool,
+  LogSecurityParserTool
 } from "@xyavoryx/tools";
 import { XyaVoryx } from "@xyavoryx/runtime";
 
@@ -79,10 +81,37 @@ const colors = {
   bgWhite: "\x1b[47m"
 };
 
+const HISTORY_FILE = path.resolve(process.cwd(), ".xyavoryx-history");
+let cliHistory: string[] = [];
+
+function initHistory(): void {
+  try {
+    if (fs.existsSync(HISTORY_FILE)) {
+      cliHistory = fs.readFileSync(HISTORY_FILE, "utf8")
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+    }
+  } catch (err) {
+    // Ignore
+  }
+}
+
+function appendToHistory(line: string): void {
+  if (!line || cliHistory.includes(line)) return;
+  cliHistory.push(line);
+  try {
+    fs.appendFileSync(HISTORY_FILE, line + "\n", "utf8");
+  } catch (err) {
+    // Ignore
+  }
+}
+
 function askQuestion(query: string): Promise<string> {
   const rl = readline.createInterface({
     input: process.stdin,
-    output: process.stdout
+    output: process.stdout,
+    history: [...cliHistory].reverse()
   });
   return new Promise((resolve) =>
     rl.question(query, (answer) => {
@@ -92,66 +121,9 @@ function askQuestion(query: string): Promise<string> {
   );
 }
 
-async function main(): Promise<void> {
-  loadEnv();
-
-  console.clear();
-  console.log(`${colors.fgCyan}${colors.bright}`);
-  console.log("██╗  ██╗██╗   ██╗ █████╗ ██╗   ██╗ ██████╗ ██████╗ ██╗   ██╗██╗  ██╗");
-  console.log("╚██╗██╔╝╚██╗ ██╔╝██╔══██╗██║   ██║██╔═══██╗██╔══██╗╚██╗ ██╔╝╚██╗██╔╝");
-  console.log(" ╚███╔╝  ╚████╔╝ ███████║██║   ██║██║   ██║██████╔╝ ╚████╔╝  ╚███╔╝ ");
-  console.log(" ██╔██╗   ╚██╔╝  ██╔══██║╚██╗ ██╔╝██║   ██║██╔══██╗  ╚██╔╝   ██╔██╗ ");
-  console.log("██╔╝ ██╗   ██║   ██║  ██║ ╚████╔╝ ╚██████╔╝██║  ██║   ██║   ██╔╝ ██╗");
-  console.log("╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝  ╚═══╝   ╚═════╝ ╚═╝  ╚═╝   ╚═╝  ╚═╝  ╚═╝");
-  console.log(`               PERSONAL SECURITY & SYSTEM AI AGENT${colors.reset}\n`);
-
-  // Detect and select LLM Provider
-  let llmProvider: any;
-  let providerName = "";
-
-  if (process.env.ANTHROPIC_API_KEY) {
-    providerName = "Anthropic Claude";
-    llmProvider = new AnthropicLLMProvider({
-      apiKey: process.env.ANTHROPIC_API_KEY,
-      model: "claude-3-5-sonnet-latest"
-    });
-  } else if (process.env.GEMINI_API_KEY) {
-    providerName = "Google Gemini";
-    llmProvider = new GeminiLLMProvider({
-      apiKey: process.env.GEMINI_API_KEY,
-      model: "gemini-2.5-flash"
-    });
-  } else if (process.env.OPENAI_API_KEY) {
-    providerName = "OpenAI GPT";
-    llmProvider = new OpenAILLMProvider({
-      apiKey: process.env.OPENAI_API_KEY,
-      model: "gpt-4o-mini"
-    });
-  } else {
-    console.log(`${colors.fgYellow}⚠️ No ANTHROPIC_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY found in .env file.`);
-    console.log(`Starting in mock/demonstration mode.${colors.reset}\n`);
-    providerName = "Mock LLM";
-    llmProvider = new MockLLMProvider({
-      defaultResponse: JSON.stringify({
-        thought: "I need to inspect the directory structure first.",
-        action: "call",
-        tool: "file.system",
-        input: { operation: "list", path: "." }
-      })
-    });
-  }
-
-  console.log(`${colors.fgGray}LLM Provider: ${colors.fgGreen}${providerName}${colors.reset}`);
-  console.log(`${colors.fgGray}Persistent storage initialized in: ${colors.fgCyan}.xyavoryx-memory${colors.reset}\n`);
-
-  // Setup memory and runtime
-  const memoryStore = new FileMemoryStore({
-    baseDir: path.resolve(process.cwd(), ".xyavoryx-memory")
-  });
-
-  // Setup interactive policy approval hook
-  const runtime = new XyaVoryx({
-    memory: memoryStore,
+function createRuntime(memoryStoreInstance: FileMemoryStore, llmProviderInstance: any): XyaVoryx {
+  const r = new XyaVoryx({
+    memory: memoryStoreInstance,
     approvalHook: async (input: PolicyValidationInput) => {
       console.log(`\n${colors.fgYellow}${colors.bright}🛡️ [Policy Guard] Danger / High-Risk action requested!${colors.reset}`);
       console.log(`${colors.fgGray}Agent wishes to call tool:${colors.reset} ${colors.fgCyan}${input.toolName}${colors.reset}`);
@@ -174,17 +146,17 @@ async function main(): Promise<void> {
     }
   });
 
-  // Register providers and tools
-  runtime.registerProvider(llmProvider);
-  runtime.registerTool(ShellExecutorTool);
-  runtime.registerTool(FileSystemTool);
-  runtime.registerTool(IOCExtractorTool);
-  runtime.registerTool(EmailHeaderAnalyzerTool);
-  runtime.registerTool(StacktraceParserTool);
-  runtime.registerTool(TestOutputParserTool);
+  r.registerProvider(llmProviderInstance);
+  r.registerTool(ShellExecutorTool);
+  r.registerTool(FileSystemTool);
+  r.registerTool(IOCExtractorTool);
+  r.registerTool(EmailHeaderAnalyzerTool);
+  r.registerTool(StacktraceParserTool);
+  r.registerTool(TestOutputParserTool);
+  r.registerTool(LogSecurityParserTool);
 
   // Subscribe to event bus for gorgeous console logs
-  runtime.getEventBus().subscribe((event: XyaVoryxEvent) => {
+  r.getEventBus().subscribe((event: XyaVoryxEvent) => {
     switch (event.type) {
       case "agent.started":
         console.log(`${colors.fgCyan}🚀 Personal Agent started and planning investigation...${colors.reset}`);
@@ -240,11 +212,95 @@ async function main(): Promise<void> {
     }
   });
 
+  return r;
+}
+
+async function main(): Promise<void> {
+  loadEnv();
+
+  console.clear();
+  console.log(`${colors.fgCyan}${colors.bright}`);
+  console.log("██╗  ██╗██╗   ██╗ █████╗ ██╗   ██╗ ██████╗ ██████╗ ██╗   ██╗██╗  ██╗");
+  console.log("╚██╗██╔╝╚██╗ ██╔╝██╔══██╗██║   ██║██╔═══██╗██╔══██╗╚██╗ ██╔╝╚██╗██╔╝");
+  console.log(" ╚███╔╝  ╚████╔╝ ███████║██║   ██║██║   ██║██████╔╝ ╚████╔╝  ╚███╔╝ ");
+  console.log(" ██╔██╗   ╚██╔╝  ██╔══██║╚██╗ ██╔╝██║   ██║██╔══██╗  ╚██╔╝   ██╔██╗ ");
+  console.log("██╔╝ ██╗   ██║   ██║  ██║ ╚████╔╝ ╚██████╔╝██║  ██║   ██║   ██╔╝ ██╗");
+  console.log("╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝  ╚═══╝   ╚═════╝ ╚═╝  ╚═╝   ╚═╝  ╚═╝  ╚═╝");
+  console.log(`               PERSONAL SECURITY & SYSTEM AI AGENT${colors.reset}\n`);
+
+  // Detect and select LLM Provider
+  let llmProvider: any;
+  let providerName = "";
+
+  let isOllamaRunning = false;
+  try {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), 300);
+    const ollamaCheck = await fetch("http://localhost:11434/api/tags", { signal: controller.signal });
+    clearTimeout(id);
+    if (ollamaCheck.ok) {
+      isOllamaRunning = true;
+    }
+  } catch (err) {
+    // Ignore, Ollama not running
+  }
+
+  if (process.env.ANTHROPIC_API_KEY) {
+    providerName = "Anthropic Claude";
+    llmProvider = new AnthropicLLMProvider({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      model: "claude-3-5-sonnet-latest"
+    });
+  } else if (process.env.GEMINI_API_KEY) {
+    providerName = "Google Gemini";
+    llmProvider = new GeminiLLMProvider({
+      apiKey: process.env.GEMINI_API_KEY,
+      model: "gemini-2.5-flash"
+    });
+  } else if (process.env.OPENAI_API_KEY) {
+    providerName = "OpenAI GPT";
+    llmProvider = new OpenAILLMProvider({
+      apiKey: process.env.OPENAI_API_KEY,
+      model: "gpt-4o-mini"
+    });
+  } else if (isOllamaRunning || process.env.OLLAMA_MODEL) {
+    const model = process.env.OLLAMA_MODEL ?? "llama3";
+    providerName = `Ollama Local (${model})`;
+    llmProvider = new OllamaLLMProvider({
+      model
+    });
+  } else {
+    console.log(`${colors.fgYellow}⚠️ No ANTHROPIC_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY found in .env file, and local Ollama server is not running.`);
+    console.log(`Starting in mock/demonstration mode.${colors.reset}\n`);
+    providerName = "Mock LLM";
+    llmProvider = new MockLLMProvider({
+      defaultResponse: JSON.stringify({
+        thought: "I need to inspect the directory structure first.",
+        action: "call",
+        tool: "file.system",
+        input: { operation: "list", path: "." }
+      })
+    });
+  }
+
+  console.log(`${colors.fgGray}LLM Provider: ${colors.fgGreen}${providerName}${colors.reset}`);
+  console.log(`${colors.fgGray}Persistent storage initialized in: ${colors.fgCyan}.xyavoryx-memory${colors.reset}\n`);
+
+  // Initialize Persistent History
+  initHistory();
+
+  // Setup memory and runtime
+  let memoryStore = new FileMemoryStore({
+    baseDir: path.resolve(process.cwd(), ".xyavoryx-memory")
+  });
+
+  let runtime = createRuntime(memoryStore, llmProvider);
+
   // Type /help tip in starting interface
   console.log(`${colors.fgGray}Type ${colors.fgCyan}/help${colors.reset} to list all interactive slash commands, or enter a security task to begin.\n`);
 
   // Start the interactive shell loop
-  const sessionId = "repl-session-" + Math.floor(Math.random() * 1000000);
+  let sessionId = "repl-session-" + Math.floor(Math.random() * 1000000);
   const caseIds: string[] = [];
 
   while (true) {
@@ -257,7 +313,10 @@ async function main(): Promise<void> {
 
     // Check for Slash Commands
     if (task.startsWith("/")) {
-      const command = task.toLowerCase();
+      const parts = task.split(/\s+/);
+      const command = parts[0].toLowerCase();
+      const arg = parts.slice(1).join(" ").trim();
+
       if (command === "/exit" || command === "/quit") {
         console.log(`${colors.fgCyan}Goodbye!${colors.reset}`);
         break;
@@ -266,16 +325,20 @@ async function main(): Promise<void> {
       if (command === "/help") {
         console.log(`\n${colors.fgCyan}${colors.bright}❓ XYAVORYX SHELL COMMANDS & DOCUMENTATION:${colors.reset}`);
         console.log(`${colors.fgGray}================================================================================${colors.reset}`);
-        console.log(`  ${colors.fgCyan}/help${colors.reset}       - Display this colorized interactive help panel`);
-        console.log(`  ${colors.fgCyan}/findings${colors.reset}   - List all security vulnerabilities / findings discovered so far`);
-        console.log(`  ${colors.fgCyan}/history${colors.reset}    - Trace chronological log/timeline of executed system tools`);
-        console.log(`  ${colors.fgCyan}/session${colors.reset}    - Print information about current LLM config, ID, & storage`);
-        console.log(`  ${colors.fgCyan}/clear${colors.reset}      - Refresh console interface and reprint ASCII logo`);
-        console.log(`  ${colors.fgCyan}/exit${colors.reset} or ${colors.fgCyan}/quit${colors.reset}- Exit XyaVoryx AI CLI Shell gracefully`);
+        console.log(`  ${colors.fgCyan}/help${colors.reset}               - Display this colorized interactive help panel`);
+        console.log(`  ${colors.fgCyan}/findings${colors.reset}           - List all security vulnerabilities / findings discovered so far`);
+        console.log(`  ${colors.fgCyan}/history${colors.reset}            - Trace chronological log/timeline of executed system tools`);
+        console.log(`  ${colors.fgCyan}/session${colors.reset}            - Print information about current LLM config, ID, & storage`);
+        console.log(`  ${colors.fgCyan}/save [filename]${colors.reset}    - Save current active session data to .xyavoryx-sessions/`);
+        console.log(`  ${colors.fgCyan}/load <filename>${colors.reset}    - Restore session from a saved JSON session file`);
+        console.log(`  ${colors.fgCyan}/export${colors.reset}            - Export professional markdown report of findings and trace`);
+        console.log(`  ${colors.fgCyan}/clear${colors.reset}              - Refresh console interface and reprint ASCII logo`);
+        console.log(`  ${colors.fgCyan}/exit${colors.reset} or ${colors.fgCyan}/quit${colors.reset}        - Exit XyaVoryx AI CLI Shell gracefully`);
         console.log(`\n${colors.fgMagenta}${colors.bright}REGISTERED SECURITY TOOLS IN SHELL:${colors.reset}`);
         console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
         console.log(`  - ${colors.fgCyan}shell.executor${colors.reset}       [HIGH risk] Runs CLI commands (governed by Policy Guard)`);
         console.log(`  - ${colors.fgCyan}file.system${colors.reset}          [MED risk]  Lists directories, reads/writes files`);
+        console.log(`  - ${colors.fgCyan}log.security.parser${colors.reset}  [LOW risk]  Analyzes Syslog, Nginx, or Windows logs for attacks`);
         console.log(`  - ${colors.fgCyan}ioc.extractor${colors.reset}        [LOW risk]  Parses IPs, MD5/SHA hashes, domains`);
         console.log(`  - ${colors.fgCyan}email.header.analyzer${colors.reset}[LOW risk]  Audits SPF, DKIM, DMARC headers`);
         console.log(`  - ${colors.fgCyan}stacktrace.parser${colors.reset}    [LOW risk]  Extracts source files and line positions`);
@@ -371,11 +434,144 @@ async function main(): Promise<void> {
         console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
         console.log(`  ${colors.fgGray}Session ID:${colors.reset}       ${colors.fgCyan}${sessionId}${colors.reset}`);
         console.log(`  ${colors.fgGray}LLM Provider:${colors.reset}     ${colors.fgGreen}${providerName}${colors.reset}`);
-        console.log(`  ${colors.fgGray}Active Model:${colors.reset}     ${colors.fgWhite}${process.env.ANTHROPIC_API_KEY ? "claude-3-5-sonnet-latest" : process.env.GEMINI_API_KEY ? "gemini-2.5-flash" : process.env.OPENAI_API_KEY ? "gpt-4o-mini" : "Mock"}${colors.reset}`);
         console.log(`  ${colors.fgGray}Memory Directory:${colors.reset} ${colors.fgCyan}${path.resolve(process.cwd(), ".xyavoryx-memory")}${colors.reset}`);
         console.log(`  ${colors.fgGray}Agent Goal:${colors.reset}       Investigate security incidents, audit system configurations, analyze files autonomously.`);
         console.log(`  ${colors.fgGray}Total Tasks Run:${colors.reset}  ${caseIds.length}`);
         console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
+        continue;
+      }
+
+      if (command === "/save") {
+        const sessionName = arg || "session-" + sessionId;
+        const safeSessionName = sessionName.replace(/[^a-zA-Z0-9_-]/g, "_");
+        const sessionDir = path.resolve(process.cwd(), ".xyavoryx-sessions");
+        if (!fs.existsSync(sessionDir)) {
+          fs.mkdirSync(sessionDir, { recursive: true });
+        }
+        const sessionFilePath = path.resolve(sessionDir, `${safeSessionName}.json`);
+
+        const statePath = path.resolve(process.cwd(), ".xyavoryx-memory", "state.json");
+        let storeState = {};
+        if (fs.existsSync(statePath)) {
+          try {
+            storeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+          } catch (e) {
+            // Ignore
+          }
+        }
+
+        const saveData = {
+          sessionId,
+          caseIds,
+          storeState
+        };
+
+        fs.writeFileSync(sessionFilePath, JSON.stringify(saveData, null, 2), "utf8");
+        console.log(`\n${colors.fgGreen}✅ Session successfully saved to: ${colors.fgCyan}${sessionFilePath}${colors.reset}`);
+        continue;
+      }
+
+      if (command === "/load") {
+        const sessionName = arg;
+        if (!sessionName) {
+          console.log(`\n${colors.fgRed}❌ Please specify a session filename to load. Example: /load my_session${colors.reset}`);
+          continue;
+        }
+        const safeSessionName = sessionName.replace(/[^a-zA-Z0-9_-]/g, "_");
+        const sessionFilePath = path.resolve(process.cwd(), ".xyavoryx-sessions", `${safeSessionName}.json`);
+
+        if (!fs.existsSync(sessionFilePath)) {
+          console.log(`\n${colors.fgRed}❌ Session file not found: ${colors.fgCyan}${sessionFilePath}${colors.reset}`);
+          continue;
+        }
+
+        try {
+          const loadedData = JSON.parse(fs.readFileSync(sessionFilePath, "utf8"));
+          
+          const stateDir = path.resolve(process.cwd(), ".xyavoryx-memory");
+          if (!fs.existsSync(stateDir)) {
+            fs.mkdirSync(stateDir, { recursive: true });
+          }
+          fs.writeFileSync(path.resolve(stateDir, "state.json"), JSON.stringify(loadedData.storeState, null, 2), "utf8");
+          
+          memoryStore = new FileMemoryStore({
+            baseDir: stateDir
+          });
+          runtime = createRuntime(memoryStore, llmProvider);
+          
+          sessionId = loadedData.sessionId;
+          caseIds.length = 0;
+          caseIds.push(...loadedData.caseIds);
+          
+          console.log(`\n${colors.fgGreen}✅ Session successfully loaded from: ${colors.fgCyan}${sessionFilePath}${colors.reset}`);
+          console.log(`  Session ID: ${colors.fgCyan}${sessionId}${colors.reset}`);
+          console.log(`  Cases loaded: ${colors.fgWhite}${caseIds.length}${colors.reset}`);
+        } catch (err) {
+          console.log(`\n${colors.fgRed}❌ Failed to load session: ${err instanceof Error ? err.message : String(err)}${colors.reset}`);
+        }
+        continue;
+      }
+
+      if (command === "/export") {
+        const findings: any[] = [];
+        for (const cid of caseIds) {
+          const caseFindings = await memoryStore.getFindings(cid);
+          findings.push(...caseFindings);
+        }
+
+        const toolHistory: any[] = [];
+        for (const cid of caseIds) {
+          const caseHistory = await memoryStore.getExecutionHistory(cid);
+          toolHistory.push(...caseHistory);
+        }
+
+        const reportName = `xyavoryx-report-${sessionId}.md`;
+        const reportPath = path.resolve(process.cwd(), reportName);
+
+        let md = `# XyaVoryx Security Investigation Report\n\n`;
+        md += `## Session Details\n`;
+        md += `- **Session ID:** \`${sessionId}\`\n`;
+        md += `- **LLM Provider:** ${providerName}\n`;
+        md += `- **Generated At:** ${new Date().toISOString()}\n`;
+        md += `- **Total Cases Investigated:** ${caseIds.length}\n\n`;
+
+        md += `## Executive Summary\n`;
+        md += `During this active investigation session, a total of **${findings.length}** security findings were identified.\n\n`;
+
+        md += `## 🎯 Security Findings\n\n`;
+        if (findings.length === 0) {
+          md += `_No security findings were generated during this session._\n\n`;
+        } else {
+          for (const f of findings) {
+            md += `### [${f.severity.toUpperCase()}] ${f.title}\n`;
+            md += `- **Source Tool:** \`${f.sourceTool ?? "unknown"}\`\n`;
+            md += `- **Description:** ${f.description}\n`;
+            if (f.evidence) {
+              md += `- **Evidence:** \`${f.evidence}\`\n`;
+            }
+            if (f.cwe || f.owasp) {
+              md += `- **Classifications:**\n`;
+              if (f.cwe) md += `  - CWE: ${f.cwe}\n`;
+              if (f.owasp) md += `  - OWASP: ${f.owasp}\n`;
+            }
+            md += `\n`;
+          }
+        }
+
+        md += `## ⚙️ Tool Execution History\n\n`;
+        if (toolHistory.length === 0) {
+          md += `_No tools were executed during this session._\n\n`;
+        } else {
+          md += `| Tool Name | Status | Duration | Evidence / Input |\n`;
+          md += `| :--- | :--- | :--- | :--- |\n`;
+          for (const r of toolHistory) {
+            md += `| \`${r.tool}\` | **${r.status.toUpperCase()}** | ${r.durationMs}ms | \`${JSON.stringify(r.input).substring(0, 80)}\` |\n`;
+          }
+          md += `\n`;
+        }
+
+        fs.writeFileSync(reportPath, md, "utf8");
+        console.log(`\n${colors.fgGreen}✅ Professional Security Report successfully exported to: ${colors.fgCyan}${reportPath}${colors.reset}`);
         continue;
       }
 
@@ -399,6 +595,9 @@ async function main(): Promise<void> {
       console.log(`Type ${colors.fgCyan}/help${colors.reset} to see all available commands.`);
       continue;
     }
+
+    // Append to Persistent History
+    appendToHistory(task);
 
     // Run Security Agent with Context Carry-Over
     const previousObservations: string[] = [];

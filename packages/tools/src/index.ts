@@ -4,3 +4,4 @@ export * from "./stacktrace-parser-tool";
 export * from "./test-output-parser-tool";
 export * from "./shell-executor-tool";
 export * from "./file-system-tool";
+export * from "./log-security-parser-tool";

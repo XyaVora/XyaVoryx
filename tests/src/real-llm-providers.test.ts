@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { GeminiLLMProvider } from "@xyavoryx/providers";
 import { OpenAILLMProvider } from "@xyavoryx/providers";
 import { AnthropicLLMProvider } from "@xyavoryx/providers";
+import { OllamaLLMProvider } from "@xyavoryx/providers";
 
 describe("Real LLM Providers", () => {
   let fetchSpy = vi.spyOn(global, "fetch");
@@ -386,6 +387,119 @@ describe("Real LLM Providers", () => {
 
       await expect(provider.generate({ prompt: "Hello" })).rejects.toThrow(
         "Anthropic LLM generate failed: Anthropic API returned status 403: Forbidden"
+      );
+    });
+  });
+
+  describe("OllamaLLMProvider", () => {
+    it("should format request payloads and parse success responses correctly", async () => {
+      const mockResponseData = {
+        message: {
+          role: "assistant",
+          content: "Hello from Ollama!"
+        }
+      };
+
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => mockResponseData,
+        text: async () => JSON.stringify(mockResponseData)
+      } as Response);
+
+      const provider = new OllamaLLMProvider({
+        endpoint: "http://127.0.0.1:11434/",
+        model: "llama3",
+        temperature: 0.1,
+        maxTokens: 500
+      });
+
+      const response = await provider.generate({
+        prompt: "Say Ollama",
+        temperature: 0.5,
+        maxTokens: 250
+      });
+
+      expect(response.content).toBe("Hello from Ollama!");
+      expect(response.metadata).toEqual({
+        provider: "ollama",
+        model: "llama3",
+        temperature: 0.5
+      });
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchSpy.mock.calls[0];
+
+      expect(url).toBe("http://127.0.0.1:11434/api/chat");
+      expect(init?.method).toBe("POST");
+      expect((init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+
+      const body = JSON.parse(init?.body as string);
+      expect(body).toEqual({
+        model: "llama3",
+        messages: [
+          {
+            role: "user",
+            content: "Say Ollama"
+          }
+        ],
+        stream: false,
+        options: {
+          temperature: 0.5,
+          num_predict: 250
+        }
+      });
+    });
+
+    it("should fallback to default options when generate request omits parameters", async () => {
+      const mockResponseData = {
+        message: {
+          role: "assistant",
+          content: "Ollama fallback response"
+        }
+      };
+
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => mockResponseData,
+        text: async () => JSON.stringify(mockResponseData)
+      } as Response);
+
+      const provider = new OllamaLLMProvider();
+
+      const response = await provider.generate({
+        prompt: "Say fallback"
+      });
+
+      expect(response.content).toBe("Ollama fallback response");
+      expect(response.metadata).toEqual({
+        provider: "ollama",
+        model: "llama3",
+        temperature: 0.2
+      });
+
+      const [url, init] = fetchSpy.mock.calls[0];
+      expect(url).toBe("http://localhost:11434/api/chat");
+      
+      const body = JSON.parse(init?.body as string);
+      expect(body.model).toBe("llama3");
+      expect(body.options).toEqual({
+        temperature: 0.2
+      });
+    });
+
+    it("should handle error status code responses appropriately", async () => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () => "Internal Server Error"
+      } as Response);
+
+      const provider = new OllamaLLMProvider();
+
+      await expect(provider.generate({ prompt: "Hello" })).rejects.toThrow(
+        "Ollama LLM generate failed: Ollama API returned status 500: Internal Server Error"
       );
     });
   });
