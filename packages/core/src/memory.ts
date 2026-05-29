@@ -40,6 +40,9 @@ export interface Finding {
   severity: FindingSeverity;
   description: string;
   sourceTool?: string;
+  evidence?: string;
+  cwe?: string;
+  owasp?: string;
   data?: Record<string, unknown>;
   createdAt: string;
 }

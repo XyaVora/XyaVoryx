@@ -12,3 +12,4 @@ export * from "./tool-executor";
 export * from "./tool-registry";
 export * from "./trace-recorder";
 export * from "./xyavoryx";
+export * from "./multi-agent-orchestrator";

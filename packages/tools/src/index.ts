@@ -5,3 +5,6 @@ export * from "./test-output-parser-tool";
 export * from "./shell-executor-tool";
 export * from "./file-system-tool";
 export * from "./log-security-parser-tool";
+export * from "./git-credential-scanner-tool";
+export * from "./docker-auditor-tool";
+export * from "./local-port-analyzer-tool";

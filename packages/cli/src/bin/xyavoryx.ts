@@ -18,9 +18,12 @@ import {
   EmailHeaderAnalyzerTool,
   StacktraceParserTool,
   TestOutputParserTool,
-  LogSecurityParserTool
+  LogSecurityParserTool,
+  GitCredentialScannerTool,
+  DockerAuditorTool,
+  LocalPortAnalyzerTool
 } from "@xyavoryx/tools";
-import { XyaVoryx } from "@xyavoryx/runtime";
+import { XyaVoryx, MultiAgentOrchestrator } from "@xyavoryx/runtime";
 
 // Simple defineAgent helper to avoid circular dependency on @xyavoryx/sdk
 function defineAgent(agent: AgentConfig): AgentConfig {
@@ -155,6 +158,9 @@ function createRuntime(memoryStoreInstance: FileMemoryStore, llmProviderInstance
   r.registerTool(StacktraceParserTool);
   r.registerTool(TestOutputParserTool);
   r.registerTool(LogSecurityParserTool);
+  r.registerTool(GitCredentialScannerTool);
+  r.registerTool(DockerAuditorTool);
+  r.registerTool(LocalPortAnalyzerTool);
 
   // Subscribe to event bus for gorgeous console logs
   r.getEventBus().subscribe((event: XyaVoryxEvent) => {
@@ -302,6 +308,13 @@ async function main(): Promise<void> {
 
   let runtime = createRuntime(memoryStore, llmProvider);
 
+  // Setup default session policies
+  const sessionPolicies = {
+    maxToolExecutions: 10,
+    forbiddenTools: [] as string[],
+    allowShellWrite: true
+  };
+
   // Type /help tip in starting interface
   console.log(`${colors.fgGray}Type ${colors.fgCyan}/help${colors.reset} to list all interactive slash commands, or enter a security task to begin.\n`);
 
@@ -335,6 +348,9 @@ async function main(): Promise<void> {
         console.log(`  ${colors.fgCyan}/findings${colors.reset}           - List all security vulnerabilities / findings discovered so far`);
         console.log(`  ${colors.fgCyan}/history${colors.reset}            - Trace chronological log/timeline of executed system tools`);
         console.log(`  ${colors.fgCyan}/session${colors.reset}            - Print information about current LLM config, ID, & storage`);
+        console.log(`  ${colors.fgCyan}/policy${colors.reset}             - View all active dynamic session policy conditions`);
+        console.log(`  ${colors.fgCyan}/policy set <k> <v>${colors.reset} - Update dynamic session policy limit (e.g. /policy set maxToolExecutions 5)`);
+        console.log(`  ${colors.fgCyan}/orchestrate${colors.reset}        - Trigger pre-defined Multi-Agent security triage pipeline`);
         console.log(`  ${colors.fgCyan}/save [filename]${colors.reset}    - Save current active session data to .xyavoryx-sessions/`);
         console.log(`  ${colors.fgCyan}/load <filename>${colors.reset}    - Restore session from a saved JSON session file`);
         console.log(`  ${colors.fgCyan}/export${colors.reset}            - Export professional markdown report of findings and trace`);
@@ -344,6 +360,9 @@ async function main(): Promise<void> {
         console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
         console.log(`  - ${colors.fgCyan}shell.executor${colors.reset}       [HIGH risk] Runs CLI commands (governed by Policy Guard)`);
         console.log(`  - ${colors.fgCyan}file.system${colors.reset}          [MED risk]  Lists directories, reads/writes files`);
+        console.log(`  - ${colors.fgCyan}git.credential.scanner${colors.reset} [MED risk]  Scans workspace files for leaked API keys / secrets`);
+        console.log(`  - ${colors.fgCyan}docker.auditor${colors.reset}          [MED risk]  Audits compose configurations for privilege risks`);
+        console.log(`  - ${colors.fgCyan}local.port.analyzer${colors.reset}     [MED risk]  Maps localhost listening services and protocols`);
         console.log(`  - ${colors.fgCyan}log.security.parser${colors.reset}  [LOW risk]  Analyzes Syslog, Nginx, or Windows logs for attacks`);
         console.log(`  - ${colors.fgCyan}ioc.extractor${colors.reset}        [LOW risk]  Parses IPs, MD5/SHA hashes, domains`);
         console.log(`  - ${colors.fgCyan}email.header.analyzer${colors.reset}[LOW risk]  Audits SPF, DKIM, DMARC headers`);
@@ -445,6 +464,89 @@ async function main(): Promise<void> {
         console.log(`  ${colors.fgGray}Agent Goal:${colors.reset}       Investigate security incidents, audit system configurations, analyze files autonomously.`);
         console.log(`  ${colors.fgGray}Total Tasks Run:${colors.reset}  ${caseIds.length}`);
         console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
+        continue;
+      }
+
+      if (command === "/policy") {
+        const subParts = arg.split(/\s+/);
+        const action = subParts[0].toLowerCase();
+
+        if (action === "set") {
+          const key = subParts[1];
+          const val = subParts.slice(2).join(" ").trim();
+          if (!key || !val) {
+            console.log(`\n${colors.fgRed}[ERROR] Missing policy key or value. Usage: /policy set <key> <value>${colors.reset}`);
+            continue;
+          }
+
+          if (key === "maxToolExecutions") {
+            const parsed = parseInt(val, 10);
+            if (!isNaN(parsed) && parsed > 0) {
+              sessionPolicies.maxToolExecutions = parsed;
+              console.log(`\n${colors.fgGreen}[SUCCESS] Updated policy: maxToolExecutions = ${parsed}${colors.reset}`);
+            } else {
+              console.log(`\n${colors.fgRed}[ERROR] Invalid value for maxToolExecutions. Must be a positive integer.${colors.reset}`);
+            }
+          } else if (key === "allowShellWrite") {
+            const parsed = val.toLowerCase() === "true" || val.toLowerCase() === "yes" || val === "1";
+            sessionPolicies.allowShellWrite = parsed;
+            console.log(`\n${colors.fgGreen}[SUCCESS] Updated policy: allowShellWrite = ${parsed}${colors.reset}`);
+          } else if (key === "forbiddenTools") {
+            sessionPolicies.forbiddenTools = val.split(",").map(t => t.trim()).filter(t => t.length > 0);
+            console.log(`\n${colors.fgGreen}[SUCCESS] Updated policy: forbiddenTools = [${sessionPolicies.forbiddenTools.join(", ")}]${colors.reset}`);
+          } else {
+            console.log(`\n${colors.fgRed}[ERROR] Unknown policy key: ${key}. Supported keys: maxToolExecutions, allowShellWrite, forbiddenTools${colors.reset}`);
+          }
+        } else {
+          console.log(`\n${colors.fgCyan}${colors.bright}[POLICY] ACTIVE SESSION POLICY LIMITS & CONFIGURATION:${colors.reset}`);
+          console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
+          console.log(`  ${colors.fgGray}maxToolExecutions:${colors.reset} ${colors.fgWhite}${sessionPolicies.maxToolExecutions}${colors.reset}`);
+          console.log(`  ${colors.fgGray}allowShellWrite:${colors.reset}   ${colors.fgWhite}${sessionPolicies.allowShellWrite}${colors.reset}`);
+          console.log(`  ${colors.fgGray}forbiddenTools:${colors.reset}    ${colors.fgWhite}[${sessionPolicies.forbiddenTools.join(", ")}]${colors.reset}`);
+          console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
+        }
+        continue;
+      }
+
+      if (command === "/orchestrate") {
+        console.log(`\n${colors.fgCyan}${colors.bright}[START] Triggering Pre-defined Multi-Agent Security Triage Pipeline...${colors.reset}`);
+        console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
+        
+        const triageAgent = defineAgent({
+          id: "triage-agent",
+          name: "Security Triage Agent",
+          goal: "Audit workspace directories for credential leaks, check docker configuration files, and identify open localhost listening interfaces.",
+          tools: ["git.credential.scanner", "docker.auditor", "local.port.analyzer"],
+          policies: sessionPolicies
+        });
+
+        const remediationAgent = defineAgent({
+          id: "remediation-agent",
+          name: "Security Remediation Agent",
+          goal: "Formulate concrete, actionable mitigation steps and write a structured remediation markdown report based on previous discoveries.",
+          tools: ["file.system"],
+          policies: sessionPolicies
+        });
+
+        const orchestrator = new MultiAgentOrchestrator(runtime);
+        try {
+          const runContext = {
+            sessionId
+          };
+          const pipelineResult = await orchestrator.runPipeline(
+            [triageAgent, remediationAgent],
+            arg || "Perform a full security triage audit of the current workspace directory and draft a remediation plan.",
+            runContext
+          );
+
+          caseIds.push(pipelineResult.sessionId); // Track session ID
+
+          console.log(`\n${colors.fgGreen}${colors.bright}[SUCCESS] Multi-Agent Orchestration Pipeline completed!${colors.reset}`);
+          console.log(`\n${colors.fgCyan}${colors.bright}[REPORT] Consolidated Master Security Report:${colors.reset}`);
+          console.log(pipelineResult.consolidatedReport);
+        } catch (err) {
+          console.log(`\n${colors.fgRed}[ERROR] Orchestration pipeline failed: ${err instanceof Error ? err.message : String(err)}${colors.reset}`);
+        }
         continue;
       }
 
@@ -636,10 +738,19 @@ async function main(): Promise<void> {
       id: "personal-sec-agent",
       name: "XyaVoryx Personal Agent",
       goal: "Investigate security incidents, audit system configurations, analyze local files, and compile markdown reports autonomously.",
-      tools: ["shell.executor", "file.system", "ioc.extractor", "email.header.analyzer", "stacktrace.parser", "test.output.parser"],
-      policies: {
-        maxToolExecutions: 10
-      }
+      tools: [
+        "shell.executor", 
+        "file.system", 
+        "ioc.extractor", 
+        "email.header.analyzer", 
+        "stacktrace.parser", 
+        "test.output.parser",
+        "log.security.parser",
+        "git.credential.scanner",
+        "docker.auditor",
+        "local.port.analyzer"
+      ],
+      policies: sessionPolicies
     });
 
     console.log(`\n${colors.dim}------------------------------------------------------------${colors.reset}`);
