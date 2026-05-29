@@ -125,7 +125,7 @@ function createRuntime(memoryStoreInstance: FileMemoryStore, llmProviderInstance
   const r = new XyaVoryx({
     memory: memoryStoreInstance,
     approvalHook: async (input: PolicyValidationInput) => {
-      console.log(`\n${colors.fgYellow}${colors.bright}🛡️ [Policy Guard] Danger / High-Risk action requested!${colors.reset}`);
+      console.log(`\n${colors.fgYellow}${colors.bright}[POLICY GUARD] Danger / High-Risk action requested!${colors.reset}`);
       console.log(`${colors.fgGray}Agent wishes to call tool:${colors.reset} ${colors.fgCyan}${input.toolName}${colors.reset}`);
       
       if (input.toolName === "shell.executor") {
@@ -134,13 +134,13 @@ function createRuntime(memoryStoreInstance: FileMemoryStore, llmProviderInstance
 
       console.log(`${colors.fgGray}Payload:${colors.reset} ${colors.fgWhite}${JSON.stringify(input.policy || input, null, 2)}${colors.reset}`);
       
-      const answer = await askQuestion(`${colors.fgYellow}${colors.bright}👉 Allow this action? (y/N): ${colors.reset}`);
+      const answer = await askQuestion(`${colors.fgYellow}${colors.bright}[CONFIRM] Allow this action? (y/N): ${colors.reset}`);
       const allowed = answer.toLowerCase() === "y" || answer.toLowerCase() === "yes";
       
       if (allowed) {
-        console.log(`${colors.fgGreen}✅ Execution approved by user.${colors.reset}\n`);
+        console.log(`${colors.fgGreen}[APPROVED] Execution approved by user.${colors.reset}\n`);
       } else {
-        console.log(`${colors.fgRed}❌ Execution denied by user.${colors.reset}\n`);
+        console.log(`${colors.fgRed}[DENIED] Execution denied by user.${colors.reset}\n`);
       }
       return allowed;
     }
@@ -159,16 +159,16 @@ function createRuntime(memoryStoreInstance: FileMemoryStore, llmProviderInstance
   r.getEventBus().subscribe((event: XyaVoryxEvent) => {
     switch (event.type) {
       case "agent.started":
-        console.log(`${colors.fgCyan}🚀 Personal Agent started and planning investigation...${colors.reset}`);
+        console.log(`${colors.fgCyan}[START] Personal Agent started and planning investigation...${colors.reset}`);
         break;
       case "workflow.step_recovered": {
         const payload = event.payload as { thought?: string; action?: string; tool?: string };
         if (payload?.thought) {
-          console.log(`\n${colors.fgYellow}${colors.bright}[💭 Agent Thought]${colors.reset}`);
+          console.log(`\n${colors.fgYellow}${colors.bright}[THOUGHT] [Agent Thought]${colors.reset}`);
           console.log(`${colors.fgYellow}${payload.thought}${colors.reset}`);
         }
         if (payload?.action === "call" && payload?.tool) {
-          console.log(`${colors.fgCyan}⚙️  [Action] Calling tool:${colors.reset} ${colors.fgMagenta}${payload.tool}${colors.reset}`);
+          console.log(`${colors.fgCyan}[ACTION] Calling tool:${colors.reset} ${colors.fgMagenta}${payload.tool}${colors.reset}`);
         }
         break;
       }
@@ -176,38 +176,38 @@ function createRuntime(memoryStoreInstance: FileMemoryStore, llmProviderInstance
         break;
       case "tool.completed": {
         const payload = event.payload as { tool?: string };
-        console.log(`${colors.fgGreen}✅  [Tool Completed] ${colors.fgGray}${payload?.tool}${colors.reset}`);
+        console.log(`${colors.fgGreen}[SUCCESS] [Tool Completed] ${colors.fgGray}${payload?.tool}${colors.reset}`);
         break;
       }
       case "tool.failed": {
         const payload = event.payload as { tool?: string; error?: string };
-        console.log(`${colors.fgRed}💥  [Tool Failed] ${colors.fgGray}${payload?.tool}: ${colors.fgRed}${payload?.error}${colors.reset}`);
+        console.log(`${colors.fgRed}[FAILURE] [Tool Failed] ${colors.fgGray}${payload?.tool}: ${colors.fgRed}${payload?.error}${colors.reset}`);
         break;
       }
       case "policy.checked": {
         const payload = event.payload as { tool?: string; allowed?: boolean; reason?: string };
         if (payload?.allowed) {
-          console.log(`${colors.fgGray}   [🛡️ Policy Allowed] ${payload?.tool}${colors.reset}`);
+          console.log(`${colors.fgGray}   [POLICY ALLOWED] ${payload?.tool}${colors.reset}`);
         } else {
-          console.log(`${colors.fgRed}   [❌ Policy Blocked] ${payload?.tool} - ${payload?.reason}${colors.reset}`);
+          console.log(`${colors.fgRed}   [POLICY BLOCKED] ${payload?.tool} - ${payload?.reason}${colors.reset}`);
         }
         break;
       }
       case "observation.created": {
         const payload = event.payload as { type?: string; message?: string };
-        console.log(`${colors.fgGray}   [👁️ Observation] ${colors.fgWhite}${payload?.message}${colors.reset}`);
+        console.log(`${colors.fgGray}   [OBSERVATION] ${colors.fgWhite}${payload?.message}${colors.reset}`);
         break;
       }
       case "finding.created": {
         const payload = event.payload as { severity?: string; title?: string };
-        console.log(`${colors.fgRed}${colors.bright}   [🎯 Finding Created] [${payload?.severity?.toUpperCase()}] ${payload?.title}${colors.reset}`);
+        console.log(`${colors.fgRed}${colors.bright}   [FINDING CREATED] [${payload?.severity?.toUpperCase()}] ${payload?.title}${colors.reset}`);
         break;
       }
       case "agent.completed":
-        console.log(`\n${colors.fgGreen}${colors.bright}✨ Agent goal completed successfully!${colors.reset}`);
+        console.log(`\n${colors.fgGreen}${colors.bright}[SUCCESS] Agent goal completed successfully!${colors.reset}`);
         break;
       case "agent.failed":
-        console.log(`\n${colors.fgRed}${colors.bright}❌ Agent goal failed or aborted.${colors.reset}`);
+        console.log(`\n${colors.fgRed}${colors.bright}[FAILURE] Agent goal failed or aborted.${colors.reset}`);
         break;
     }
   });
@@ -231,6 +231,7 @@ async function main(): Promise<void> {
   // Detect and select LLM Provider
   let llmProvider: any;
   let providerName = "";
+  let activeModel = "Mock";
 
   let isOllamaRunning = false;
   try {
@@ -247,32 +248,36 @@ async function main(): Promise<void> {
 
   if (process.env.ANTHROPIC_API_KEY) {
     providerName = "Anthropic Claude";
+    activeModel = "claude-3-5-sonnet-latest";
     llmProvider = new AnthropicLLMProvider({
       apiKey: process.env.ANTHROPIC_API_KEY,
-      model: "claude-3-5-sonnet-latest"
+      model: activeModel
     });
   } else if (process.env.GEMINI_API_KEY) {
     providerName = "Google Gemini";
+    activeModel = "gemini-2.5-flash";
     llmProvider = new GeminiLLMProvider({
       apiKey: process.env.GEMINI_API_KEY,
-      model: "gemini-2.5-flash"
+      model: activeModel
     });
   } else if (process.env.OPENAI_API_KEY) {
     providerName = "OpenAI GPT";
+    activeModel = "gpt-4o-mini";
     llmProvider = new OpenAILLMProvider({
       apiKey: process.env.OPENAI_API_KEY,
-      model: "gpt-4o-mini"
+      model: activeModel
     });
   } else if (isOllamaRunning || process.env.OLLAMA_MODEL) {
-    const model = process.env.OLLAMA_MODEL ?? "llama3";
-    providerName = `Ollama Local (${model})`;
+    activeModel = process.env.OLLAMA_MODEL ?? "llama3";
+    providerName = `Ollama Local (${activeModel})`;
     llmProvider = new OllamaLLMProvider({
-      model
+      model: activeModel
     });
   } else {
-    console.log(`${colors.fgYellow}⚠️ No ANTHROPIC_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY found in .env file, and local Ollama server is not running.`);
+    console.log(`${colors.fgYellow}[WARNING] No ANTHROPIC_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY found in .env file, and local Ollama server is not running.`);
     console.log(`Starting in mock/demonstration mode.${colors.reset}\n`);
     providerName = "Mock LLM";
+    activeModel = "Mock";
     llmProvider = new MockLLMProvider({
       defaultResponse: JSON.stringify({
         thought: "I need to inspect the directory structure first.",
@@ -323,7 +328,7 @@ async function main(): Promise<void> {
       }
 
       if (command === "/help") {
-        console.log(`\n${colors.fgCyan}${colors.bright}❓ XYAVORYX SHELL COMMANDS & DOCUMENTATION:${colors.reset}`);
+        console.log(`\n${colors.fgCyan}${colors.bright}[HELP] XYAVORYX SHELL COMMANDS & DOCUMENTATION:${colors.reset}`);
         console.log(`${colors.fgGray}================================================================================${colors.reset}`);
         console.log(`  ${colors.fgCyan}/help${colors.reset}               - Display this colorized interactive help panel`);
         console.log(`  ${colors.fgCyan}/findings${colors.reset}           - List all security vulnerabilities / findings discovered so far`);
@@ -348,7 +353,7 @@ async function main(): Promise<void> {
       }
 
       if (command === "/findings") {
-        console.log(`\n${colors.fgCyan}${colors.bright}🎯 SECURITY FINDINGS IN CURRENT SESSION:${colors.reset}`);
+        console.log(`\n${colors.fgCyan}${colors.bright}[FINDINGS] SECURITY FINDINGS IN CURRENT SESSION:${colors.reset}`);
         console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
         
         const findings: any[] = [];
@@ -389,7 +394,7 @@ async function main(): Promise<void> {
       }
 
       if (command === "/history") {
-        console.log(`\n${colors.fgCyan}${colors.bright}⚙️  TOOL EXECUTION TIMELINE:${colors.reset}`);
+        console.log(`\n${colors.fgCyan}${colors.bright}[TIMELINE] TOOL EXECUTION TIMELINE:${colors.reset}`);
         console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
         
         const toolHistory: any[] = [];
@@ -430,10 +435,11 @@ async function main(): Promise<void> {
       }
 
       if (command === "/session") {
-        console.log(`\n${colors.fgCyan}${colors.bright}📂 ACTIVE SESSION STATUS & CONFIGURATION:${colors.reset}`);
+        console.log(`\n${colors.fgCyan}${colors.bright}[SESSION] ACTIVE SESSION STATUS & CONFIGURATION:${colors.reset}`);
         console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
         console.log(`  ${colors.fgGray}Session ID:${colors.reset}       ${colors.fgCyan}${sessionId}${colors.reset}`);
         console.log(`  ${colors.fgGray}LLM Provider:${colors.reset}     ${colors.fgGreen}${providerName}${colors.reset}`);
+        console.log(`  ${colors.fgGray}Active Model:${colors.reset}     ${colors.fgGreen}${activeModel}${colors.reset}`);
         console.log(`  ${colors.fgGray}Memory Directory:${colors.reset} ${colors.fgCyan}${path.resolve(process.cwd(), ".xyavoryx-memory")}${colors.reset}`);
         console.log(`  ${colors.fgGray}Agent Goal:${colors.reset}       Investigate security incidents, audit system configurations, analyze files autonomously.`);
         console.log(`  ${colors.fgGray}Total Tasks Run:${colors.reset}  ${caseIds.length}`);
@@ -467,21 +473,21 @@ async function main(): Promise<void> {
         };
 
         fs.writeFileSync(sessionFilePath, JSON.stringify(saveData, null, 2), "utf8");
-        console.log(`\n${colors.fgGreen}✅ Session successfully saved to: ${colors.fgCyan}${sessionFilePath}${colors.reset}`);
+        console.log(`\n${colors.fgGreen}[SUCCESS] Session successfully saved to: ${colors.fgCyan}${sessionFilePath}${colors.reset}`);
         continue;
       }
 
       if (command === "/load") {
         const sessionName = arg;
         if (!sessionName) {
-          console.log(`\n${colors.fgRed}❌ Please specify a session filename to load. Example: /load my_session${colors.reset}`);
+          console.log(`\n${colors.fgRed}[ERROR] Please specify a session filename to load. Example: /load my_session${colors.reset}`);
           continue;
         }
         const safeSessionName = sessionName.replace(/[^a-zA-Z0-9_-]/g, "_");
         const sessionFilePath = path.resolve(process.cwd(), ".xyavoryx-sessions", `${safeSessionName}.json`);
 
         if (!fs.existsSync(sessionFilePath)) {
-          console.log(`\n${colors.fgRed}❌ Session file not found: ${colors.fgCyan}${sessionFilePath}${colors.reset}`);
+          console.log(`\n${colors.fgRed}[ERROR] Session file not found: ${colors.fgCyan}${sessionFilePath}${colors.reset}`);
           continue;
         }
 
@@ -503,11 +509,11 @@ async function main(): Promise<void> {
           caseIds.length = 0;
           caseIds.push(...loadedData.caseIds);
           
-          console.log(`\n${colors.fgGreen}✅ Session successfully loaded from: ${colors.fgCyan}${sessionFilePath}${colors.reset}`);
+          console.log(`\n${colors.fgGreen}[SUCCESS] Session successfully loaded from: ${colors.fgCyan}${sessionFilePath}${colors.reset}`);
           console.log(`  Session ID: ${colors.fgCyan}${sessionId}${colors.reset}`);
           console.log(`  Cases loaded: ${colors.fgWhite}${caseIds.length}${colors.reset}`);
         } catch (err) {
-          console.log(`\n${colors.fgRed}❌ Failed to load session: ${err instanceof Error ? err.message : String(err)}${colors.reset}`);
+          console.log(`\n${colors.fgRed}[ERROR] Failed to load session: ${err instanceof Error ? err.message : String(err)}${colors.reset}`);
         }
         continue;
       }
@@ -538,7 +544,7 @@ async function main(): Promise<void> {
         md += `## Executive Summary\n`;
         md += `During this active investigation session, a total of **${findings.length}** security findings were identified.\n\n`;
 
-        md += `## 🎯 Security Findings\n\n`;
+        md += `## [FINDINGS] Security Findings\n\n`;
         if (findings.length === 0) {
           md += `_No security findings were generated during this session._\n\n`;
         } else {
@@ -558,7 +564,7 @@ async function main(): Promise<void> {
           }
         }
 
-        md += `## ⚙️ Tool Execution History\n\n`;
+        md += `## [TIMELINE] Tool Execution History\n\n`;
         if (toolHistory.length === 0) {
           md += `_No tools were executed during this session._\n\n`;
         } else {
@@ -571,7 +577,7 @@ async function main(): Promise<void> {
         }
 
         fs.writeFileSync(reportPath, md, "utf8");
-        console.log(`\n${colors.fgGreen}✅ Professional Security Report successfully exported to: ${colors.fgCyan}${reportPath}${colors.reset}`);
+        console.log(`\n${colors.fgGreen}[SUCCESS] Professional Security Report successfully exported to: ${colors.fgCyan}${reportPath}${colors.reset}`);
         continue;
       }
 
@@ -591,7 +597,7 @@ async function main(): Promise<void> {
         continue;
       }
 
-      console.log(`${colors.fgRed}⚠️  Unknown slash command: ${colors.bright}${task}${colors.reset}`);
+      console.log(`${colors.fgRed}[WARNING] Unknown slash command: ${colors.bright}${task}${colors.reset}`);
       console.log(`Type ${colors.fgCyan}/help${colors.reset} to see all available commands.`);
       continue;
     }
@@ -645,7 +651,7 @@ async function main(): Promise<void> {
     caseIds.push(result.caseId);
 
     if (result.report) {
-      console.log(`\n${colors.fgGreen}${colors.bright}[📝 Final Security Report]${colors.reset}`);
+      console.log(`\n${colors.fgGreen}${colors.bright}[REPORT] Final Security Report${colors.reset}`);
       console.log(result.report);
     }
   }
