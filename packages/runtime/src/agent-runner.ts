@@ -44,18 +44,21 @@ export class AgentRunner {
   constructor(private readonly deps: AgentRunnerDependencies) {}
 
   async run(agent: AgentConfig, input: AgentInput): Promise<AgentResult> {
-    const sessionId = this.deps.runtimeContext.nextId("session");
+    const sessionId = (input.context?.sessionId as string) ?? this.deps.runtimeContext.nextId("session");
     const caseId = this.deps.runtimeContext.nextId("case");
     const startedAt = this.deps.runtimeContext.now();
 
-    await this.deps.memory.createSession({
-      id: sessionId,
-      agentName: agent.name,
-      task: input.task,
-      status: "created",
-      createdAt: startedAt,
-      updatedAt: startedAt
-    });
+    const existingSession = await this.deps.memory.getSession(sessionId);
+    if (!existingSession) {
+      await this.deps.memory.createSession({
+        id: sessionId,
+        agentName: agent.name,
+        task: input.task,
+        status: "created",
+        createdAt: startedAt,
+        updatedAt: startedAt
+      });
+    }
 
     await this.deps.memory.createCase({
       id: caseId,

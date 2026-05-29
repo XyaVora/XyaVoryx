@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { GeminiLLMProvider } from "@xyavoryx/providers";
 import { OpenAILLMProvider } from "@xyavoryx/providers";
+import { AnthropicLLMProvider } from "@xyavoryx/providers";
 
 describe("Real LLM Providers", () => {
   let fetchSpy = vi.spyOn(global, "fetch");
@@ -264,6 +265,127 @@ describe("Real LLM Providers", () => {
 
       await expect(provider.generate({ prompt: "Hello" })).rejects.toThrow(
         "OpenAI LLM generate failed: OpenAI API returned status 401: Unauthorized"
+      );
+    });
+  });
+
+  describe("AnthropicLLMProvider", () => {
+    it("should throw an error if API key is missing", () => {
+      expect(() => new AnthropicLLMProvider({ apiKey: "" })).toThrow("Anthropic API key must be provided.");
+    });
+
+    it("should format request payloads and parse success responses correctly", async () => {
+      const mockResponseData = {
+        content: [
+          {
+            type: "text",
+            text: "Hello from Claude!"
+          }
+        ]
+      };
+
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => mockResponseData,
+        text: async () => JSON.stringify(mockResponseData)
+      } as Response);
+
+      const provider = new AnthropicLLMProvider({
+        apiKey: "test-anthropic-key",
+        model: "claude-3-opus-latest",
+        temperature: 0.1,
+        maxTokens: 1000
+      });
+
+      const response = await provider.generate({
+        prompt: "Say Claude",
+        temperature: 0.5,
+        maxTokens: 500
+      });
+
+      expect(response.content).toBe("Hello from Claude!");
+      expect(response.metadata).toEqual({
+        provider: "anthropic",
+        model: "claude-3-opus-latest",
+        temperature: 0.5
+      });
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchSpy.mock.calls[0];
+
+      expect(url).toBe("https://api.anthropic.com/v1/messages");
+      expect(init?.method).toBe("POST");
+      expect((init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+      expect((init?.headers as Record<string, string>)["x-api-key"]).toBe("test-anthropic-key");
+      expect((init?.headers as Record<string, string>)["anthropic-version"]).toBe("2023-06-01");
+
+      const body = JSON.parse(init?.body as string);
+      expect(body).toEqual({
+        model: "claude-3-opus-latest",
+        messages: [
+          {
+            role: "user",
+            content: "Say Claude"
+          }
+        ],
+        temperature: 0.5,
+        max_tokens: 500
+      });
+    });
+
+    it("should fallback to default options when generate request omits parameters", async () => {
+      const mockResponseData = {
+        content: [
+          {
+            type: "text",
+            text: "Claude fallback response"
+          }
+        ]
+      };
+
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => mockResponseData,
+        text: async () => JSON.stringify(mockResponseData)
+      } as Response);
+
+      const provider = new AnthropicLLMProvider({
+        apiKey: "test-anthropic-key"
+      });
+
+      const response = await provider.generate({
+        prompt: "Say fallback"
+      });
+
+      expect(response.content).toBe("Claude fallback response");
+      expect(response.metadata).toEqual({
+        provider: "anthropic",
+        model: "claude-3-5-sonnet-latest",
+        temperature: 0.2
+      });
+
+      const [url, init] = fetchSpy.mock.calls[0];
+      const body = JSON.parse(init?.body as string);
+      expect(body.model).toBe("claude-3-5-sonnet-latest");
+      expect(body.temperature).toBe(0.2);
+      expect(body.max_tokens).toBe(4096);
+    });
+
+    it("should handle error status code responses appropriately", async () => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        text: async () => "Forbidden"
+      } as Response);
+
+      const provider = new AnthropicLLMProvider({
+        apiKey: "invalid-key"
+      });
+
+      await expect(provider.generate({ prompt: "Hello" })).rejects.toThrow(
+        "Anthropic LLM generate failed: Anthropic API returned status 403: Forbidden"
       );
     });
   });

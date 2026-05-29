@@ -52,6 +52,9 @@ export class AutonomousPlanner {
       `Your overarching goal is: "${agent.goal}"`,
       `Your current assigned task is: "${input.task}"`,
       input.rawInput ? `Raw Input under investigation:\n"""\n${input.rawInput}\n"""` : "",
+      input.context && Object.keys(input.context).length > 0
+        ? `Investigation Context & History:\n${JSON.stringify(input.context, null, 2)}`
+        : "",
       `Available Security Tools:`,
       toolsList,
       `Current Investigation Observations:`,
