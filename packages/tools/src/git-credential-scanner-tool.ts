@@ -106,6 +106,7 @@ export const GitCredentialScannerTool: XyaVoryxTool<z.infer<typeof inputSchema>,
       try {
         const entries = fs.readdirSync(dir, { withFileTypes: true });
         for (const entry of entries) {
+          if (filesToScan.length >= 250) return;
           const fullPath = path.join(dir, entry.name);
           if (entry.isDirectory()) {
             if (!EXCLUDED_DIRS.has(entry.name)) {
@@ -142,7 +143,7 @@ export const GitCredentialScannerTool: XyaVoryxTool<z.infer<typeof inputSchema>,
         const lines = content.split(/\r?\n/);
         for (let idx = 0; idx < lines.length; idx++) {
           const line = lines[idx];
-          if (!line) continue;
+          if (!line || line.length > 1000) continue;
 
           for (const pattern of CREDENTIAL_PATTERNS) {
             pattern.regex.lastIndex = 0; // Reset RegExp position

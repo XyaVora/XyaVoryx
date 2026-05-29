@@ -65,18 +65,41 @@ export const DockerAuditorTool: XyaVoryxTool<z.infer<typeof inputSchema>, Docker
       auditedFile = path.relative(process.cwd(), targetFilePath);
       try {
         const content = fs.readFileSync(targetFilePath, "utf8");
-        const lines = content.split(/\r?\n/).map(line => line.trim());
+        const rawLines = content.split(/\r?\n/);
 
         // Process line-by-line checks for compose format
         let currentService = "";
-        for (let idx = 0; idx < lines.length; idx++) {
-          const line = lines[idx];
+        let insideServices = false;
+
+        for (let idx = 0; idx < rawLines.length; idx++) {
+          const rawLine = rawLines[idx];
+          const line = rawLine.trim();
           if (!line) continue;
 
-          // Track current service scope simple parser
-          const serviceMatch = line.match(/^([a-zA-Z0-9_-]+):$/);
-          if (serviceMatch && idx > 0 && lines[idx - 1] === "services:") {
-            currentService = serviceMatch[1];
+          // Check if we enter the services block
+          if (/^services\s*:/i.test(rawLine)) {
+            insideServices = true;
+            continue;
+          }
+
+          // If we see another root level key, we exit services block
+          if (insideServices && /^[a-zA-Z0-9_-]+\s*:/i.test(rawLine) && !rawLine.startsWith(" ") && !rawLine.startsWith("services")) {
+            insideServices = false;
+          }
+
+          // Track current service name (indented inside services block)
+          if (insideServices) {
+            const serviceMatch = rawLine.match(/^(\s+)([a-zA-Z0-9_-]+)\s*:/);
+            if (serviceMatch) {
+              const indent = serviceMatch[1].length;
+              if (indent === 2 || indent === 4) {
+                const name = serviceMatch[2];
+                const keywords = ["ports", "environment", "volumes", "networks", "build", "image", "deploy", "secrets", "configs"];
+                if (!keywords.includes(name)) {
+                  currentService = name;
+                }
+              }
+            }
           }
 
           // Privileged mode check (High)
@@ -104,14 +127,11 @@ export const DockerAuditorTool: XyaVoryxTool<z.infer<typeof inputSchema>, Docker
           }
 
           // Public Database Port exposure (Medium)
-          // Look for direct port mapping exposing MySQL 3306 or Postgres 5432 publicly without localhost restriction
-          // e.g. "3306:3306" or "- 5432:5432"
           const portMatch = line.match(/(?:-\s*["']?|["']?)([0-9]+):([0-9]+)["']?/);
           if (portMatch) {
             const hostPort = parseInt(portMatch[1], 10);
             const containerPort = parseInt(portMatch[2], 10);
             if ([3306, 5432, 27017, 6379, 1433, 1521].includes(hostPort) || [3306, 5432, 27017, 6379, 1433, 1521].includes(containerPort)) {
-              // Ensure it is not binding only to 127.0.0.1
               if (!line.includes("127.0.0.1")) {
                 anomalies.push({
                   file: auditedFile,
@@ -126,10 +146,13 @@ export const DockerAuditorTool: XyaVoryxTool<z.infer<typeof inputSchema>, Docker
           }
 
           // Insecure Cleartext Credential Environment Variable (Medium)
-          // e.g. "MYSQL_ROOT_PASSWORD=secret" or "POSTGRES_PASSWORD: secret"
-          if (/(?:PASSWORD|SECRET|DB_PASS|PASSWD)\s*[:=]\s*(.+)/i.test(line)) {
-            const val = line.substring(line.indexOf(":") + 1).trim();
-            if (val && !val.includes("${") && val !== '""' && val !== "''" && !val.includes("secrets/")) {
+          const envMatch = line.match(/(?:PASSWORD|SECRET|DB_PASS|PASSWD)\s*[:=]\s*(.+)/i);
+          if (envMatch) {
+            let val = envMatch[1].trim();
+            if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+              val = val.substring(1, val.length - 1).trim();
+            }
+            if (val && !val.includes("${") && val !== '""' && val !== "''" && !val.includes("secrets/") && !val.startsWith("$")) {
               anomalies.push({
                 file: auditedFile,
                 type: `Insecure Cleartext Hardcoded Secrets [${currentService || "unknown"}]`,
