@@ -1,11 +1,13 @@
 {
   "name": "xyavoryx",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "packageManager": "pnpm@10.0.0",
   "scripts": {
     "build": "corepack pnpm -r build",
     "test": "corepack pnpm -r test",
+    "setup": "tsx scripts/setup.ts",
+    "cli": "tsx scripts/xyavoryx-cli.ts",
     "eval:baseline": "corepack pnpm --filter @xyavoryx/tests exec vitest run src/evaluation-regression-pack.e2e.test.ts",
     "eval:replay": "corepack pnpm --filter @xyavoryx/tests exec vitest run src/evaluation-replay-consistency.e2e.test.ts",
     "eval:snapshot": "tsx scripts/evaluation/generate-snapshot.ts",

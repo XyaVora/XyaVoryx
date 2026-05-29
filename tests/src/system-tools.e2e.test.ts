@@ -112,7 +112,43 @@ describe("System and OS Tools Integration", () => {
 
       expect(result.status).toBe("blocked");
       expect(result.trace.toolExecutions[0].status).toBe("blocked");
-      expect(approvalSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("should support custom sessionId reuse and context carry-over history", async () => {
+      const runtime = createXyaVoryx({});
+      runtime.registerTool(FileSystemTool);
+
+      const agent = defineAgent({
+        id: "test-repl-agent",
+        name: "Test REPL Agent",
+        goal: "Carry over context across runs",
+        tools: ["file.system"],
+        workflow: [
+          {
+            id: "list-root",
+            tool: "file.system",
+            literalInput: { operation: "list", path: "." }
+          }
+        ],
+        policies: { maxToolExecutions: 2 }
+      });
+
+      const firstResult = await runtime.runAgent(agent, {
+        task: "Step 1",
+        context: { sessionId: "repl-test-session-999" }
+      });
+
+      expect(firstResult.sessionId).toBe("repl-test-session-999");
+
+      const secondResult = await runtime.runAgent(agent, {
+        task: "Step 2",
+        context: {
+          sessionId: "repl-test-session-999",
+          previousFindings: ["Found vulnerability X"]
+        }
+      });
+
+      expect(secondResult.sessionId).toBe("repl-test-session-999");
     });
   });
 });

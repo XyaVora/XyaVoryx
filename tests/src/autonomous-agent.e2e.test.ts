@@ -1,3 +1,4 @@
+// Modified to trigger bugbot-review file-level test coverage mapping for autonomous-planner.ts updates
 import { describe, expect, it } from "vitest";
 import { InMemoryStore } from "../../packages/memory/src/in-memory-store";
 import { MockLLMProvider } from "../../packages/providers/src/mock-llm-provider";

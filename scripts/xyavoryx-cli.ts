@@ -6,6 +6,7 @@ import { FileMemoryStore } from "@xyavoryx/memory";
 import {
   GeminiLLMProvider,
   OpenAILLMProvider,
+  AnthropicLLMProvider,
   MockLLMProvider
 } from "@xyavoryx/providers";
 import {
@@ -108,7 +109,13 @@ async function main(): Promise<void> {
   let llmProvider: any;
   let providerName = "";
 
-  if (process.env.GEMINI_API_KEY) {
+  if (process.env.ANTHROPIC_API_KEY) {
+    providerName = "Anthropic Claude";
+    llmProvider = new AnthropicLLMProvider({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      model: "claude-3-5-sonnet-latest"
+    });
+  } else if (process.env.GEMINI_API_KEY) {
     providerName = "Google Gemini";
     llmProvider = new GeminiLLMProvider({
       apiKey: process.env.GEMINI_API_KEY,
@@ -121,7 +128,7 @@ async function main(): Promise<void> {
       model: "gpt-4o-mini"
     });
   } else {
-    console.log(`${colors.fgYellow}⚠️ No GEMINI_API_KEY or OPENAI_API_KEY found in .env file.`);
+    console.log(`${colors.fgYellow}⚠️ No ANTHROPIC_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY found in .env file.`);
     console.log(`Starting in mock/demonstration mode.${colors.reset}\n`);
     providerName = "Mock LLM";
     llmProvider = new MockLLMProvider({
@@ -233,24 +240,197 @@ async function main(): Promise<void> {
     }
   });
 
-  // Start the interactive shell loop
-  while (true) {
-    const task = await askQuestion(`\n${colors.bright}🤖 Enter your task for the Security Agent (or type 'exit'): ${colors.reset}`);
-    
-    if (task.toLowerCase() === "exit") {
-      console.log(`${colors.fgCyan}Goodbye!${colors.reset}`);
-      break;
-    }
+  // Type /help tip in starting interface
+  console.log(`${colors.fgGray}Type ${colors.fgCyan}/help${colors.reset} to list all interactive slash commands, or enter a security task to begin.\n`);
 
+  // Start the interactive shell loop
+  const sessionId = "repl-session-" + Math.floor(Math.random() * 1000000);
+  const caseIds: string[] = [];
+
+  while (true) {
+    const inputPrompt = await askQuestion(`\n${colors.fgCyan}${colors.bright}xyavoryx-shell>${colors.reset} `);
+    const task = inputPrompt.trim();
+    
     if (!task) {
       continue;
     }
+
+    // Check for Slash Commands
+    if (task.startsWith("/")) {
+      const command = task.toLowerCase();
+      if (command === "/exit" || command === "/quit") {
+        console.log(`${colors.fgCyan}Goodbye!${colors.reset}`);
+        break;
+      }
+
+      if (command === "/help") {
+        console.log(`\n${colors.fgCyan}${colors.bright}❓ XYAVORYX SHELL COMMANDS & DOCUMENTATION:${colors.reset}`);
+        console.log(`${colors.fgGray}================================================================================${colors.reset}`);
+        console.log(`  ${colors.fgCyan}/help${colors.reset}       - Display this colorized interactive help panel`);
+        console.log(`  ${colors.fgCyan}/findings${colors.reset}   - List all security vulnerabilities / findings discovered so far`);
+        console.log(`  ${colors.fgCyan}/history${colors.reset}    - Trace chronological log/timeline of executed system tools`);
+        console.log(`  ${colors.fgCyan}/session${colors.reset}    - Print information about current LLM config, ID, & storage`);
+        console.log(`  ${colors.fgCyan}/clear${colors.reset}      - Refresh console interface and reprint ASCII logo`);
+        console.log(`  ${colors.fgCyan}/exit${colors.reset} or ${colors.fgCyan}/quit${colors.reset}- Exit XyaVoryx AI CLI Shell gracefully`);
+        console.log(`\n${colors.fgMagenta}${colors.bright}REGISTERED SECURITY TOOLS IN SHELL:${colors.reset}`);
+        console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
+        console.log(`  - ${colors.fgCyan}shell.executor${colors.reset}       [HIGH risk] Runs CLI commands (governed by Policy Guard)`);
+        console.log(`  - ${colors.fgCyan}file.system${colors.reset}          [MED risk]  Lists directories, reads/writes files`);
+        console.log(`  - ${colors.fgCyan}ioc.extractor${colors.reset}        [LOW risk]  Parses IPs, MD5/SHA hashes, domains`);
+        console.log(`  - ${colors.fgCyan}email.header.analyzer${colors.reset}[LOW risk]  Audits SPF, DKIM, DMARC headers`);
+        console.log(`  - ${colors.fgCyan}stacktrace.parser${colors.reset}    [LOW risk]  Extracts source files and line positions`);
+        console.log(`  - ${colors.fgCyan}test.output.parser${colors.reset}   [LOW risk]  Processes vitest / test suites execution results`);
+        console.log(`${colors.fgGray}================================================================================${colors.reset}`);
+        continue;
+      }
+
+      if (command === "/findings") {
+        console.log(`\n${colors.fgCyan}${colors.bright}🎯 SECURITY FINDINGS IN CURRENT SESSION:${colors.reset}`);
+        console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
+        
+        const findings: any[] = [];
+        for (const cid of caseIds) {
+          const caseFindings = await memoryStore.getFindings(cid);
+          findings.push(...caseFindings);
+        }
+        
+        if (findings.length === 0) {
+          console.log(`  ${colors.fgYellow}No security findings discovered yet in this session.${colors.reset}`);
+        } else {
+          // Format headers
+          console.log(
+            `  ${colors.bright}${"Severity".padEnd(8)} | ${"Title".padEnd(30)} | ${"Source Tool".padEnd(15)} | ${"Description"}${colors.reset}`
+          );
+          console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
+          for (const f of findings) {
+            let sevColor = colors.fgGreen;
+            if (f.severity === "high") {
+              sevColor = colors.fgRed;
+            } else if (f.severity === "medium") {
+              sevColor = colors.fgYellow;
+            }
+            
+            const paddedSev = f.severity.toUpperCase().padEnd(8);
+            const paddedTitle = f.title.padEnd(30).substring(0, 30);
+            const paddedTool = (f.sourceTool ?? "unknown").padEnd(15).substring(0, 15);
+            const descCut = f.description.substring(0, 40);
+
+            console.log(
+              `  ${sevColor}${colors.bright}${paddedSev}${colors.reset} | ${paddedTitle} | ${paddedTool} | ${colors.fgGray}${descCut}${colors.reset}`
+            );
+          }
+        }
+        console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
+        console.log(`  ${colors.bright}Total findings: ${findings.length}${colors.reset}`);
+        continue;
+      }
+
+      if (command === "/history") {
+        console.log(`\n${colors.fgCyan}${colors.bright}⚙️  TOOL EXECUTION TIMELINE:${colors.reset}`);
+        console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
+        
+        const toolHistory: any[] = [];
+        for (const cid of caseIds) {
+          const caseHistory = await memoryStore.getExecutionHistory(cid);
+          toolHistory.push(...caseHistory);
+        }
+        
+        if (toolHistory.length === 0) {
+          console.log(`  ${colors.fgYellow}No tools have been executed in this session yet.${colors.reset}`);
+        } else {
+          console.log(
+            `  ${colors.bright}${"Tool Name".padEnd(15)} | ${"Status".padEnd(9)} | ${"Duration".padEnd(8)} | ${"Error / Payload Snippet"}${colors.reset}`
+          );
+          console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
+          for (const record of toolHistory) {
+            let statusColor = colors.fgGreen;
+            if (record.status === "failed") {
+              statusColor = colors.fgRed;
+            } else if (record.status === "blocked") {
+              statusColor = colors.fgYellow;
+            }
+            
+            const detailSnippet = record.error 
+              ? `${colors.fgRed}${record.error}${colors.reset}` 
+              : JSON.stringify(record.input).substring(0, 45);
+
+            console.log(
+              `  ${colors.fgMagenta}${record.tool.padEnd(15).substring(0, 15)}${colors.reset} | ` +
+              `${statusColor}${record.status.padEnd(9)}${colors.reset} | ` +
+              `${colors.fgCyan}${String(record.durationMs + "ms").padEnd(8)}${colors.reset} | ` +
+              `${colors.fgGray}${detailSnippet}${colors.reset}`
+            );
+          }
+        }
+        console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
+        continue;
+      }
+
+      if (command === "/session") {
+        console.log(`\n${colors.fgCyan}${colors.bright}📂 ACTIVE SESSION STATUS & CONFIGURATION:${colors.reset}`);
+        console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
+        console.log(`  ${colors.fgGray}Session ID:${colors.reset}       ${colors.fgCyan}${sessionId}${colors.reset}`);
+        console.log(`  ${colors.fgGray}LLM Provider:${colors.reset}     ${colors.fgGreen}${providerName}${colors.reset}`);
+        console.log(`  ${colors.fgGray}Active Model:${colors.reset}     ${colors.fgWhite}${process.env.ANTHROPIC_API_KEY ? "claude-3-5-sonnet-latest" : process.env.GEMINI_API_KEY ? "gemini-2.5-flash" : process.env.OPENAI_API_KEY ? "gpt-4o-mini" : "Mock"}${colors.reset}`);
+        console.log(`  ${colors.fgGray}Memory Directory:${colors.reset} ${colors.fgCyan}${path.resolve(process.cwd(), ".xyavoryx-memory")}${colors.reset}`);
+        console.log(`  ${colors.fgGray}Agent Goal:${colors.reset}       Investigate security incidents, audit system configurations, analyze files autonomously.`);
+        console.log(`  ${colors.fgGray}Total Tasks Run:${colors.reset}  ${caseIds.length}`);
+        console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
+        continue;
+      }
+
+      if (command === "/clear") {
+        console.clear();
+        console.log(`${colors.fgCyan}${colors.bright}`);
+        console.log("██╗  ██╗██╗   ██╗ █████╗ ██╗   ██╗ ██████╗ ██████╗ ██╗   ██╗██╗  ██╗");
+        console.log("╚██╗██╔╝╚██╗ ██╔╝██╔══██╗██║   ██║██╔═══██╗██╔══██╗╚██╗ ██╔╝╚██╗██╔╝");
+        console.log(" ╚███╔╝  ╚████╔╝ ███████║██║   ██║██║   ██║██████╔╝ ╚████╔╝  ╚███╔╝ ");
+        console.log(" ██╔██╗   ╚██╔╝  ██╔══██║╚██╗ ██╔╝██║   ██║██╔══██╗  ╚██╔╝   ██╔██╗ ");
+        console.log("██╔╝ ██╗   ██║   ██║  ██║ ╚████╔╝ ╚██████╔╝██║  ██║   ██║   ██╔╝ ██╗");
+        console.log("╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝  ╚═══╝   ╚═════╝ ╚═╝  ╚═╝   ╚═╝  ╚═╝  ╚═╝");
+        console.log(`               PERSONAL SECURITY & SYSTEM AI AGENT${colors.reset}\n`);
+        console.log(`${colors.fgGray}LLM Provider: ${colors.fgGreen}${providerName}${colors.reset}`);
+        console.log(`${colors.fgGray}Persistent storage initialized in: ${colors.fgCyan}.xyavoryx-memory${colors.reset}`);
+        console.log(`${colors.fgGray}Type ${colors.fgCyan}/help${colors.reset} to list all interactive slash commands, or enter a security task to begin.\n`);
+        continue;
+      }
+
+      console.log(`${colors.fgRed}⚠️  Unknown slash command: ${colors.bright}${task}${colors.reset}`);
+      console.log(`Type ${colors.fgCyan}/help${colors.reset} to see all available commands.`);
+      continue;
+    }
+
+    // Run Security Agent with Context Carry-Over
+    const previousObservations: string[] = [];
+    const previousFindings: string[] = [];
+
+    for (const cid of caseIds) {
+      const caseObs = await memoryStore.getObservations(cid);
+      for (const obs of caseObs) {
+        if (obs.type === "tool.output" && obs.data) {
+          previousObservations.push(`[${obs.data.tool}] ${JSON.stringify(obs.data.output)}`);
+        } else {
+          previousObservations.push(obs.message);
+        }
+      }
+      
+      const caseFinds = await memoryStore.getFindings(cid);
+      for (const f of caseFinds) {
+        previousFindings.push(`[${f.severity.toUpperCase()}] ${f.title}: ${f.description}`);
+      }
+    }
+
+    const runContext: Record<string, unknown> = {
+      sessionId,
+      previousObservations: previousObservations.slice(-20), // Carry last 20 observations to avoid context bloat
+      previousFindings: previousFindings.slice(-10)
+    };
 
     const agent = defineAgent({
       id: "personal-sec-agent",
       name: "XyaVoryx Personal Agent",
       goal: "Investigate security incidents, audit system configurations, analyze local files, and compile markdown reports autonomously.",
-      tools: ["shell.executor", "file.system", "ioc.extractor", "email.header.analyzer", "stacktrace.parser"],
+      tools: ["shell.executor", "file.system", "ioc.extractor", "email.header.analyzer", "stacktrace.parser", "test.output.parser"],
       policies: {
         maxToolExecutions: 10
       }
@@ -258,9 +438,12 @@ async function main(): Promise<void> {
 
     console.log(`\n${colors.dim}------------------------------------------------------------${colors.reset}`);
     const result = await runtime.runAgent(agent, {
-      task
+      task,
+      context: runContext
     });
     console.log(`${colors.dim}------------------------------------------------------------${colors.reset}`);
+
+    caseIds.push(result.caseId);
 
     if (result.report) {
       console.log(`\n${colors.fgGreen}${colors.bright}[📝 Final Security Report]${colors.reset}`);

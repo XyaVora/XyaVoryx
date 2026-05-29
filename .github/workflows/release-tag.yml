@@ -46,16 +46,7 @@ jobs:
         run: |
           tar -czf xyavoryx-public-${{ github.ref_name }}.tar.gz dist-public
           sha256sum xyavoryx-public-${{ github.ref_name }}.tar.gz > xyavoryx-public-${{ github.ref_name }}.sha256
-          corepack pnpm release:manifest -- --output xyavoryx-public-${{ github.ref_name }}.manifest.json dist-public xyavoryx-public-${{ github.ref_name }}.tar.gz xyavoryx-public-${{ github.ref_name }}.sha256
-
-      - name: Generate Build Provenance Attestation
-        uses: actions/attest@281a49d4cbb0a72c9575a50d18f6deb515a11deb # v4
-        with:
-          subject-path: |
-            xyavoryx-public-${{ github.ref_name }}.tar.gz
-            xyavoryx-public-${{ github.ref_name }}.sha256
-            xyavoryx-public-${{ github.ref_name }}.manifest.json
-
+          node scripts/release/generate-release-manifest.mjs --output xyavoryx-public-${{ github.ref_name }}.manifest.json dist-public xyavoryx-public-${{ github.ref_name }}.tar.gz xyavoryx-public-${{ github.ref_name }}.sha256
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
