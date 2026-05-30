@@ -2,8 +2,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
-import type { PolicyValidationInput, XyaVoryxEvent, AgentConfig, Finding } from "@xyavoryx/core";
-import { SqliteMemoryStore } from "@xyavoryx/memory";
+import type { PolicyValidationInput, XyaVoryxEvent, AgentConfig, Finding, MemoryStore } from "@xyavoryx/core";
+import { PostgreSqlMemoryStore, FileMemoryStore, InMemoryStore, EncryptedMemoryStore } from "@xyavoryx/memory";
 import {
   GeminiLLMProvider,
   OpenAILLMProvider,
@@ -126,7 +126,7 @@ function askQuestion(query: string): Promise<string> {
   );
 }
 
-function createRuntime(memoryStoreInstance: SqliteMemoryStore, llmProviderInstance: any): XyaVoryx {
+function createRuntime(memoryStoreInstance: MemoryStore, llmProviderInstance: any): XyaVoryx {
   const r = new XyaVoryx({
     memory: memoryStoreInstance,
     approvalHook: async (input: PolicyValidationInput) => {
@@ -302,10 +302,29 @@ async function main(): Promise<void> {
   // Initialize Persistent History
   initHistory();
 
+  // Helper to initialize secure storage polymorphic engine
+  function initStore(): MemoryStore {
+    const dbUrl = process.env.DATABASE_URL;
+    let baseStore: MemoryStore;
+
+    if (dbUrl && (dbUrl.startsWith("postgres://") || dbUrl.startsWith("postgresql://"))) {
+      baseStore = new PostgreSqlMemoryStore();
+    } else {
+      const memoryDir = path.resolve(process.cwd(), ".xyavoryx-memory");
+      if (!fs.existsSync(memoryDir)) {
+        fs.mkdirSync(memoryDir, { recursive: true });
+      }
+      baseStore = new FileMemoryStore({ baseDir: memoryDir });
+    }
+
+    if (process.env.XYAVORYX_ENCRYPTION_KEY) {
+      return new EncryptedMemoryStore(baseStore);
+    }
+    return baseStore;
+  }
+
   // Setup memory and runtime
-  let memoryStore = new SqliteMemoryStore({
-    dbPath: path.resolve(process.cwd(), ".xyavoryx-memory", "db.sqlite")
-  });
+  let memoryStore = initStore();
 
   let runtime = createRuntime(memoryStore, llmProvider);
 
@@ -563,7 +582,12 @@ async function main(): Promise<void> {
         console.log(`${colors.fgGray}Query: "${arg}"${colors.reset}`);
         console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
 
-        const results = await memoryStore.searchSimilarFindings(arg, 5);
+        if (typeof (memoryStore as any).searchSimilarFindings !== "function") {
+          console.log(`  ${colors.fgYellow}Semantic vector search is not supported by the current memory store.${colors.reset}`);
+          console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
+          continue;
+        }
+        const results = await (memoryStore as any).searchSimilarFindings(arg, 5);
         if (results.length === 0) {
           console.log(`  No semantically similar findings discovered in session history.`);
         } else {
@@ -698,9 +722,7 @@ async function main(): Promise<void> {
           }
           fs.writeFileSync(path.resolve(stateDir, "state.json"), JSON.stringify(loadedData.storeState, null, 2), "utf8");
           
-          memoryStore = new SqliteMemoryStore({
-            dbPath: path.resolve(stateDir, "db.sqlite")
-          });
+          memoryStore = initStore();
           runtime = createRuntime(memoryStore, llmProvider);
           
           sessionId = loadedData.sessionId;
