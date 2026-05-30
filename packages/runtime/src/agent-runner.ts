@@ -1018,6 +1018,9 @@ export class AgentRunner {
     let iterations = 0;
     let finalReport = "";
 
+    // Track consecutive duplicate executions to prevent infinite planning loops
+    const executionHistoryLog: string[] = [];
+
     while (iterations < maxIterations) {
       iterations += 1;
 
@@ -1072,6 +1075,26 @@ export class AgentRunner {
         }
 
         const resolvedStepInput = decision.input;
+
+        // Loop Guard Verification: halt if agent consecutively executes exact same tool/input 3 times
+        const signature = `${toolName}:${JSON.stringify(resolvedStepInput)}`;
+        executionHistoryLog.push(signature);
+        if (executionHistoryLog.length >= 3) {
+          const idx = executionHistoryLog.length - 1;
+          if (
+            executionHistoryLog[idx] === executionHistoryLog[idx - 1] &&
+            executionHistoryLog[idx] === executionHistoryLog[idx - 2]
+          ) {
+            status = "failed";
+            emitEvent("workflow.recovery_failed" as any, {
+              reason: "infinite_planning_loop_detected",
+              tool: toolName
+            });
+            this.deps.logger.error(`Infinite planning loop detected for tool: ${toolName}`);
+            break;
+          }
+        }
+
         const scopedPolicy = this.resolveScopedPolicy(policy, tool.name, `auto-${iterations}`);
 
         const validationDecision = await this.deps.policyEngine.validate({

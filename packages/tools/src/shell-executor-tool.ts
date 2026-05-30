@@ -28,6 +28,17 @@ export const ShellExecutorTool: XyaVoryxTool<z.infer<typeof inputSchema>, ShellE
   },
   async run(input) {
     try {
+      // Hardened Shell Injection Protection: Block dangerous shell metacharacters
+      const forbiddenChars = /[;&|`$\n\r<>]/;
+      if (forbiddenChars.test(input.command) || (input.args && input.args.some(arg => forbiddenChars.test(arg)))) {
+        return {
+          stdout: "",
+          stderr: "",
+          exitCode: null,
+          error: "Command execution blocked: input contains forbidden shell metacharacters."
+        };
+      }
+
       const result = spawnSync(input.command, input.args ?? [], {
         shell: true,
         encoding: "utf8",
