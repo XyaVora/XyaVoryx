@@ -2,8 +2,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
-import type { PolicyValidationInput, XyaVoryxEvent, AgentConfig } from "@xyavoryx/core";
-import { FileMemoryStore } from "@xyavoryx/memory";
+import type { PolicyValidationInput, XyaVoryxEvent, AgentConfig, Finding } from "@xyavoryx/core";
+import { SqliteMemoryStore } from "@xyavoryx/memory";
 import {
   GeminiLLMProvider,
   OpenAILLMProvider,
@@ -21,7 +21,8 @@ import {
   LogSecurityParserTool,
   GitCredentialScannerTool,
   DockerAuditorTool,
-  LocalPortAnalyzerTool
+  LocalPortAnalyzerTool,
+  MitigationEngine
 } from "@xyavoryx/tools";
 import { XyaVoryx, MultiAgentOrchestrator } from "@xyavoryx/runtime";
 
@@ -125,7 +126,7 @@ function askQuestion(query: string): Promise<string> {
   );
 }
 
-function createRuntime(memoryStoreInstance: FileMemoryStore, llmProviderInstance: any): XyaVoryx {
+function createRuntime(memoryStoreInstance: SqliteMemoryStore, llmProviderInstance: any): XyaVoryx {
   const r = new XyaVoryx({
     memory: memoryStoreInstance,
     approvalHook: async (input: PolicyValidationInput) => {
@@ -302,8 +303,8 @@ async function main(): Promise<void> {
   initHistory();
 
   // Setup memory and runtime
-  let memoryStore = new FileMemoryStore({
-    baseDir: path.resolve(process.cwd(), ".xyavoryx-memory")
+  let memoryStore = new SqliteMemoryStore({
+    dbPath: path.resolve(process.cwd(), ".xyavoryx-memory", "db.sqlite")
   });
 
   let runtime = createRuntime(memoryStore, llmProvider);
@@ -351,6 +352,8 @@ async function main(): Promise<void> {
         console.log(`  ${colors.fgCyan}/policy${colors.reset}             - View all active dynamic session policy conditions`);
         console.log(`  ${colors.fgCyan}/policy set <k> <v>${colors.reset} - Update dynamic session policy limit (e.g. /policy set maxToolExecutions 5)`);
         console.log(`  ${colors.fgCyan}/orchestrate${colors.reset}        - Trigger pre-defined Multi-Agent security triage pipeline`);
+        console.log(`  ${colors.fgCyan}/search <query>${colors.reset}     - Run semantic vector space cosine similarity search on findings`);
+        console.log(`  ${colors.fgCyan}/remediate <id>${colors.reset}     - Propose and automatically apply a mitigation for a finding`);
         console.log(`  ${colors.fgCyan}/save [filename]${colors.reset}    - Save current active session data to .xyavoryx-sessions/`);
         console.log(`  ${colors.fgCyan}/load <filename>${colors.reset}    - Restore session from a saved JSON session file`);
         console.log(`  ${colors.fgCyan}/export${colors.reset}            - Export professional markdown report of findings and trace`);
@@ -550,6 +553,98 @@ async function main(): Promise<void> {
         continue;
       }
 
+      if (command === "/search") {
+        if (!arg) {
+          console.log(`\n${colors.fgRed}[ERROR] Please provide a search query. Example: /search credentials${colors.reset}`);
+          continue;
+        }
+
+        console.log(`\n${colors.fgCyan}${colors.bright}[SEARCH] Running Semantic Cosine Similarity Search...${colors.reset}`);
+        console.log(`${colors.fgGray}Query: "${arg}"${colors.reset}`);
+        console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
+
+        const results = await memoryStore.searchSimilarFindings(arg, 5);
+        if (results.length === 0) {
+          console.log(`  No semantically similar findings discovered in session history.`);
+        } else {
+          console.log(`  | Score  | Finding Title | Severity | Source Tool |`);
+          console.log(`  | :---   | :---          | :---     | :---        |`);
+          for (const res of results) {
+            const scorePct = `${(res.score * 100).toFixed(1)}%`;
+            console.log(`  | ${colors.fgGreen}${scorePct.padEnd(6)}${colors.reset} | ${res.title.substring(0, 45).padEnd(45)} | **${res.severity.toUpperCase().padEnd(6)}** | \`${res.sourceTool ?? "unknown"}\` |`);
+          }
+        }
+        console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
+        continue;
+      }
+
+      if (command === "/remediate") {
+        if (!arg) {
+          console.log(`\n${colors.fgRed}[ERROR] Please specify a finding ID to remediate. Example: /remediate finding_id${colors.reset}`);
+          continue;
+        }
+
+        // 1. Locate finding across all cases in session
+        let targetFinding: Finding | null = null;
+        for (const cid of caseIds) {
+          const caseFindings = await memoryStore.getFindings(cid);
+          const found = caseFindings.find(f => f.id === arg);
+          if (found) {
+            targetFinding = found;
+            break;
+          }
+        }
+
+        if (!targetFinding) {
+          console.log(`\n${colors.fgRed}[ERROR] Finding ID not found in active session history: ${colors.bright}${arg}${colors.reset}`);
+          continue;
+        }
+
+        console.log(`\n${colors.fgCyan}${colors.bright}[REMEDIATE] Inspecting Finding: ${colors.fgWhite}${targetFinding.title}${colors.reset}`);
+        console.log(`${colors.fgGray}Source Tool: ${colors.fgWhite}${targetFinding.sourceTool ?? "unknown"}${colors.reset}`);
+        console.log(`${colors.fgGray}Severity:    ${colors.fgWhite}${targetFinding.severity.toUpperCase()}${colors.reset}`);
+        console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
+
+        // 2. Generate mitigation proposal
+        const proposal = MitigationEngine.proposeFix(targetFinding);
+        if (!proposal) {
+          console.log(`  ${colors.fgYellow}[NOTICE] No automated mitigation is registered for this finding type.${colors.reset}`);
+          console.log(`  Manual remediation recommended.`);
+          console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
+          continue;
+        }
+
+        // 3. Render colored proposed diff
+        console.log(`${colors.fgWhite}${colors.bright}PROPOSED AUTONOMOUS MITIGATION DIFF:${colors.reset}`);
+        const diffLines = proposal.diff.split("\n");
+        for (const dl of diffLines) {
+          if (dl.startsWith("-")) {
+            console.log(`  ${colors.fgRed}${dl}${colors.reset}`);
+          } else if (dl.startsWith("+")) {
+            console.log(`  ${colors.fgGreen}${dl}${colors.reset}`);
+          } else if (dl.startsWith("[")) {
+            console.log(`  ${colors.fgMagenta}${colors.bright}${dl}${colors.reset}`);
+          } else {
+            console.log(`  ${colors.fgGray}${dl}${colors.reset}`);
+          }
+        }
+        console.log(`${colors.fgGray}--------------------------------------------------------------------------------${colors.reset}`);
+
+        // 4. Prompt user for execution approval
+        const confirm = await askQuestion(`${colors.fgYellow}${colors.bright}[CONFIRM] Apply this automated security mitigation? (y/N): ${colors.reset}`);
+        if (confirm.toLowerCase() === "y" || confirm.toLowerCase() === "yes") {
+          try {
+            await proposal.apply();
+            console.log(`\n${colors.fgGreen}[SUCCESS] Mitigation applied successfully!${colors.reset}`);
+          } catch (err) {
+            console.log(`\n${colors.fgRed}[ERROR] Mitigation execution failed: ${err instanceof Error ? err.message : String(err)}${colors.reset}`);
+          }
+        } else {
+          console.log(`\n${colors.fgYellow}[CANCEL] Remediation cancelled by user.${colors.reset}`);
+        }
+        continue;
+      }
+
       if (command === "/save") {
         const sessionName = arg || "session-" + sessionId;
         const safeSessionName = sessionName.replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -603,8 +698,8 @@ async function main(): Promise<void> {
           }
           fs.writeFileSync(path.resolve(stateDir, "state.json"), JSON.stringify(loadedData.storeState, null, 2), "utf8");
           
-          memoryStore = new FileMemoryStore({
-            baseDir: stateDir
+          memoryStore = new SqliteMemoryStore({
+            dbPath: path.resolve(stateDir, "db.sqlite")
           });
           runtime = createRuntime(memoryStore, llmProvider);
           
