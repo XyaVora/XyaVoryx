@@ -6,12 +6,31 @@ XyaVoryx helps you run AI-powered security investigation pipelines with predicta
 
 ## Getting Started
 
-### Prerequisites
+### Quick Start (No Cloning Required)
+
+You can run the **XyaVoryx Interactive CLI Shell** instantly using `npx` without cloning this repository:
+
+```bash
+npx @xyavoryx/cli
+```
+
+Or install it globally to use the `xyavoryx` command from any directory:
+
+```bash
+npm install -g @xyavoryx/cli
+xyavoryx
+```
+
+### Development Setup (Cloning the Repository)
+
+If you wish to contribute, build custom agents, or modify the core engine, follow these steps to set up the development environment.
+
+#### Prerequisites
 
 - [Node.js](https://nodejs.org/) 20 or later
 - [Corepack](https://nodejs.org/api/corepack.html) enabled (ships with Node.js)
 
-### 1. Clone and Install
+#### 1. Clone and Install
 
 ```bash
 git clone https://github.com/XyaVora/XyaVoryx.git
