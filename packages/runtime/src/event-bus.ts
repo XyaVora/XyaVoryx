@@ -24,5 +24,6 @@ export class EventBus {
 
   clear(): void {
     this.events.length = 0;
+    this.handlers.clear();
   }
 }

@@ -28,6 +28,15 @@ export const FileSystemTool: XyaVoryxTool<z.infer<typeof inputSchema>, FileSyste
   },
   async run(input) {
     const resolvedPath = path.resolve(input.path);
+    const workspaceRoot = path.resolve(process.cwd());
+
+    // Path Traversal Mitigation: Ensure target path remains strictly within authorized workspace root
+    if (!resolvedPath.startsWith(workspaceRoot)) {
+      return {
+        success: false,
+        error: `Access denied: Path '${input.path}' lies outside the authorized workspace directory.`
+      };
+    }
 
     try {
       if (input.operation === "read") {
