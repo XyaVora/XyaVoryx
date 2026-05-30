@@ -8,3 +8,6 @@ export * from "./log-security-parser-tool";
 export * from "./git-credential-scanner-tool";
 export * from "./docker-auditor-tool";
 export * from "./local-port-analyzer-tool";
+export * from "./docker-compose-remediator";
+export * from "./local-port-remediator";
+export * from "./mitigation-engine";

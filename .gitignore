@@ -1,4 +1,4 @@
-﻿node_modules/
+node_modules/
 coverage/
 dist/
 *.tsbuildinfo
@@ -9,3 +9,5 @@ PHASE_*_PLAN.md
 .xyavoryx-data/
 .xyavoryx-eval/
 dist-public/
+.xyavoryx-memory/
+
