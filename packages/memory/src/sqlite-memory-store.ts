@@ -101,8 +101,8 @@ export class SqliteMemoryStore implements MemoryStore {
         outputJson TEXT,
         status TEXT NOT NULL,
         startedAt TEXT NOT NULL,
-        completedAt TEXT NOT NULL,
-        durationMs INTEGER NOT NULL,
+        completedAt TEXT,
+        durationMs INTEGER,
         error TEXT
       );
 
@@ -371,8 +371,8 @@ export class SqliteMemoryStore implements MemoryStore {
       output: row.outputJson ? JSON.parse(String(row.outputJson)) : undefined,
       status: row.status as any,
       startedAt: String(row.startedAt),
-      completedAt: String(row.completedAt),
-      durationMs: Number(row.durationMs),
+      completedAt: row.completedAt ? String(row.completedAt) : undefined,
+      durationMs: row.durationMs !== null && row.durationMs !== undefined ? Number(row.durationMs) : undefined,
       error: row.error ? String(row.error) : undefined
     }));
   }

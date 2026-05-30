@@ -103,4 +103,25 @@ describe("SqliteMemoryStore", () => {
     expect(portSearch[0].id).toBe("find-2");
     expect(portSearch[0].score).toBeGreaterThan(0.3);
   });
+
+  it("saves and retrieves incomplete or blocked execution records smoothly", async () => {
+    const store = new SqliteMemoryStore();
+
+    const blockedRecord = {
+      id: "rec-blocked-1",
+      tool: "shell.executor",
+      input: { command: "dangerous command" },
+      status: "blocked" as const,
+      startedAt: new Date().toISOString()
+    };
+
+    await store.appendExecutionRecord("case-123", blockedRecord);
+    const history = await store.getExecutionHistory("case-123");
+
+    expect(history.length).toBe(1);
+    expect(history[0].id).toBe("rec-blocked-1");
+    expect(history[0].status).toBe("blocked");
+    expect(history[0].completedAt).toBeUndefined();
+    expect(history[0].durationMs).toBeUndefined();
+  });
 });
