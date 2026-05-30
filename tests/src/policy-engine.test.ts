@@ -83,4 +83,56 @@ describe("PolicyEngine", () => {
 
     expect(decision.allowed).toBe(true);
   });
+
+  it("blocks tool when network is disabled", async () => {
+    const engine = new PolicyEngine();
+
+    const decision = await engine.validate({
+      toolName: "network.tool",
+      executionCount: 0,
+      toolMetadata: {
+        requiresNetwork: true
+      },
+      policy: {
+        allowNetwork: false
+      }
+    });
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toMatch(/network access blocked/i);
+  });
+
+  it("blocks tool when filesystem is disabled", async () => {
+    const engine = new PolicyEngine();
+
+    const decision = await engine.validate({
+      toolName: "file.tool",
+      executionCount: 0,
+      toolMetadata: {
+        requiresFilesystem: true
+      },
+      policy: {
+        allowFilesystem: false
+      }
+    });
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toMatch(/filesystem access blocked/i);
+  });
+
+  it("blocks tool and returns error description when approvalHook throws an error", async () => {
+    const engine = new PolicyEngine({
+      approvalHook: () => {
+        throw new Error("Hook crashed");
+      }
+    });
+
+    const decision = await engine.validate({
+      toolName: "shell.executor",
+      executionCount: 0
+    });
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toMatch(/policy approval gate threw an error: hook crashed/i);
+  });
 });

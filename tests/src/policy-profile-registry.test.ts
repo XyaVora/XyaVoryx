@@ -33,4 +33,79 @@ describe("PolicyProfileRegistry", () => {
 
     expect(() => registry.resolve("missing-profile")).toThrow(/unknown policy profile/i);
   });
+
+  it("registers and retrieves custom profiles", () => {
+    const registry = new PolicyProfileRegistry({
+      customSeed: {
+        allowNetwork: true,
+        allowFilesystem: false
+      }
+    });
+
+    registry.register("customRegistered", {
+      allowNetwork: false,
+      allowFilesystem: true,
+      maxToolExecutions: 5
+    });
+
+    const seed = registry.get("customSeed");
+    expect(seed).toBeDefined();
+    expect(seed?.allowNetwork).toBe(true);
+
+    const reg = registry.get("customRegistered");
+    expect(reg).toBeDefined();
+    expect(reg?.allowFilesystem).toBe(true);
+    expect(reg?.maxToolExecutions).toBe(5);
+  });
+
+  it("merges tool and step scoped policies cleanly", () => {
+    const registry = new PolicyProfileRegistry();
+    registry.register("baseProfile", {
+      allowNetwork: false,
+      allowFilesystem: false,
+      toolPolicies: {
+        "shell.executor": {
+          allowFilesystem: true,
+          maxToolExecutions: 3
+        }
+      }
+    });
+
+    const resolved = registry.resolve("baseProfile", {
+      toolPolicies: {
+        "shell.executor": {
+          allowNetwork: true,
+          maxToolExecutions: 5
+        },
+        "network.tool": {
+          allowNetwork: true
+        }
+      }
+    });
+
+    expect(resolved).toBeDefined();
+    const shellPolicy = resolved?.toolPolicies?.["shell.executor"];
+    expect(shellPolicy?.allowFilesystem).toBe(true);
+    expect(shellPolicy?.allowNetwork).toBe(true);
+    expect(shellPolicy?.maxToolExecutions).toBe(5);
+
+    const netPolicy = resolved?.toolPolicies?.["network.tool"];
+    expect(netPolicy?.allowNetwork).toBe(true);
+  });
+
+  it("merges string lists for allowed and denied tools deterministically", () => {
+    const registry = new PolicyProfileRegistry();
+    registry.register("baseProfile", {
+      allowedTools: ["ioc.extractor", "email.header.analyzer"],
+      deniedTools: ["shell.executor"]
+    });
+
+    const resolved = registry.resolve("baseProfile", {
+      allowedTools: ["stacktrace.parser", "ioc.extractor"],
+      deniedTools: ["local.port.analyzer"]
+    });
+
+    expect(resolved?.allowedTools?.sort()).toEqual(["email.header.analyzer", "ioc.extractor", "stacktrace.parser"].sort());
+    expect(resolved?.deniedTools?.sort()).toEqual(["local.port.analyzer", "shell.executor"].sort());
+  });
 });
