@@ -26,7 +26,7 @@ export const FileSystemTool: XyaVoryxTool<z.infer<typeof inputSchema>, FileSyste
     riskLevel: "medium",
     requiresFilesystem: true
   },
-  async run(input) {
+  async run(input, context) {
     const resolvedPath = path.resolve(input.path);
     const workspaceRoot = path.resolve(process.cwd());
 
@@ -55,6 +55,53 @@ export const FileSystemTool: XyaVoryxTool<z.infer<typeof inputSchema>, FileSyste
         if (input.content === undefined) {
           return { success: false, error: "Content is required for write operation." };
         }
+
+        // Auto-Rollback Engine Backup Logic
+        if (context && context.caseId) {
+          const caseId = context.caseId;
+          const backupDir = path.resolve(process.cwd(), ".xyavoryx-backup", caseId);
+          const manifestPath = path.join(backupDir, "manifest.json");
+
+          if (fs.existsSync(resolvedPath)) {
+            try {
+              if (!fs.existsSync(backupDir)) {
+                fs.mkdirSync(backupDir, { recursive: true });
+              }
+
+              // Read original content
+              const originalContent = fs.readFileSync(resolvedPath, "utf8");
+
+              // Compute backup filename
+              const randSuffix = Math.random().toString(36).substring(2, 7);
+              const backupFilename = `backup-${Date.now()}-${randSuffix}.bak`;
+              const backupFilePath = path.join(backupDir, backupFilename);
+
+              // Write backup file
+              fs.writeFileSync(backupFilePath, originalContent, "utf8");
+
+              // Read existing manifest or initialize new
+              let manifest: Record<string, string> = {};
+              if (fs.existsSync(manifestPath)) {
+                try {
+                  manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+                } catch {
+                  // Fallback
+                }
+              }
+
+              // Only backup the absolute original state of the file before the agent's first write
+              if (!manifest[resolvedPath]) {
+                manifest[resolvedPath] = backupFilename;
+                fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+              }
+            } catch (err) {
+              if (context.logger) {
+                context.logger.warn(`Failed to create rollback backup for ${resolvedPath}: ${err}`);
+              }
+            }
+          }
+        }
+
         const dir = path.dirname(resolvedPath);
         if (!fs.existsSync(dir)) {
           fs.mkdirSync(dir, { recursive: true });
