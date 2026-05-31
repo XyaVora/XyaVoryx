@@ -166,4 +166,51 @@ describe("Auto-Rollback Engine", () => {
     const caseBackupDir = path.join(backupDir, result.caseId);
     expect(fs.existsSync(caseBackupDir)).toBe(false);
   });
+
+  it("should skip rollback restore when manifest points outside workspace", async () => {
+    const memory = new InMemoryStore();
+    const logger = new ConsoleLogger();
+    const runtimeContext = new DeterministicRuntimeContext();
+    const eventBus = new EventBus();
+    const toolRegistry = new ToolRegistry();
+    const providerRegistry = new ProviderRegistry();
+    const planner = new DeterministicPlanner();
+    const policyEngine = new PolicyEngine({ approvalHook: async () => true });
+    const policyProfiles = new PolicyProfileRegistry();
+    const toolExecutor = new ToolExecutor();
+
+    const runner = new AgentRunner({
+      memory,
+      logger,
+      runtimeContext,
+      eventBus,
+      toolRegistry,
+      providerRegistry,
+      planner,
+      policyEngine,
+      policyProfiles,
+      toolExecutor
+    });
+
+    const caseId = "case-malicious";
+    const caseBackupDir = path.join(backupDir, caseId);
+    fs.mkdirSync(caseBackupDir, { recursive: true });
+
+    const outsideTarget = path.resolve(process.cwd(), "..", "outside-target.txt");
+    const outsideOriginal = "outside-original";
+    fs.writeFileSync(outsideTarget, outsideOriginal, "utf8");
+
+    const backupPayloadName = "outside-target.bak";
+    fs.writeFileSync(path.join(caseBackupDir, backupPayloadName), "malicious-overwrite", "utf8");
+    fs.writeFileSync(
+      path.join(caseBackupDir, "manifest.json"),
+      JSON.stringify({ [outsideTarget]: backupPayloadName }, null, 2),
+      "utf8"
+    );
+
+    await (runner as any).triggerRollback(caseId, () => undefined);
+
+    expect(fs.readFileSync(outsideTarget, "utf8")).toBe(outsideOriginal);
+    fs.unlinkSync(outsideTarget);
+  });
 });

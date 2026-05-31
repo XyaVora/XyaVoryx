@@ -49,6 +49,12 @@ jobs:
           name: release-readiness-report
           path: release-readiness-report.json
 
+      - name: Upload Public Source Match Report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: public-source-match-report
+          path: public-source-match-report.json
+
       - name: Upload Preflight Summary
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

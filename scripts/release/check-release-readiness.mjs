@@ -12,7 +12,9 @@ function parseArgs(argv) {
     reportPath: process.env.RELEASE_READINESS_REPORT_PATH || "release-readiness-report.json",
     requireMain: process.env.RELEASE_READINESS_REQUIRE_MAIN !== "0",
     requireClean: process.env.RELEASE_READINESS_REQUIRE_CLEAN !== "0",
-    skipPipeline: process.env.RELEASE_READINESS_SKIP_PIPELINE === "1"
+    skipPipeline: process.env.RELEASE_READINESS_SKIP_PIPELINE === "1",
+    publicRepoUrl: process.env.PUBLIC_SYNC_REPO_URL || "https://github.com/XyaVora/XyaVoryx.git",
+    publicRef: process.env.PUBLIC_SYNC_TARGET_BRANCH || "main"
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -32,6 +34,12 @@ function parseArgs(argv) {
       args.requireMain = false;
     } else if (arg === "--no-require-clean") {
       args.requireClean = false;
+    } else if (arg === "--public-repo-url") {
+      args.publicRepoUrl = argv[index + 1] || args.publicRepoUrl;
+      index += 1;
+    } else if (arg === "--public-ref") {
+      args.publicRef = argv[index + 1] || args.publicRef;
+      index += 1;
     }
   }
 
@@ -119,13 +127,14 @@ function validateReleaseIncrementPolicy(releaseTag, releaseScope, latestTag) {
   };
 }
 
-function runPipelineChecks(skipPipeline) {
+function runPipelineChecks(skipPipeline, args) {
   const checks = [
     "corepack pnpm -r build",
     "corepack pnpm -r test",
     "corepack pnpm eval:replay",
     "corepack pnpm public:build",
-    "corepack pnpm check:public-export"
+    "corepack pnpm check:public-export",
+    `corepack pnpm release:source-match -- --public-repo-url ${args.publicRepoUrl} --public-ref ${args.publicRef}`
   ];
 
   if (skipPipeline) {
@@ -160,7 +169,7 @@ function main() {
   const semverTags = listSemverTags();
   const latestTag = semverTags.length > 0 ? semverTags[semverTags.length - 1] : null;
   const releasePolicy = validateReleaseIncrementPolicy(args.releaseTag, args.releaseScope, latestTag);
-  const pipeline = runPipelineChecks(args.skipPipeline);
+  const pipeline = runPipelineChecks(args.skipPipeline, args);
 
   const payload = {
     passed: true,

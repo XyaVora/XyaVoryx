@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import type { XyaVoryxTool } from "@xyavoryx/core";
 
 const inputSchema = z.object({
@@ -26,21 +26,40 @@ export const ShellExecutorTool: XyaVoryxTool<z.infer<typeof inputSchema>, ShellE
     requiresFilesystem: true,
     timeoutMs: 10000
   },
-  async run(input) {
+  async run(input, context) {
     try {
-      // Hardened Shell Injection Protection: Block dangerous shell metacharacters
-      const forbiddenChars = /[;&|`$\n\r<>]/;
-      if (forbiddenChars.test(input.command) || (input.args && input.args.some(arg => forbiddenChars.test(arg)))) {
+      const command = input.command.trim();
+      const args = input.args ?? [];
+
+      // Block control chars and common shell metacharacters in command/args.
+      const forbiddenChars = /[\u0000-\u001f\u007f;&|`$<>]/;
+      if (!command || command.includes(" ") || forbiddenChars.test(command) || args.some((arg) => forbiddenChars.test(arg))) {
         return {
           stdout: "",
           stderr: "",
           exitCode: null,
-          error: "Command execution blocked: input contains forbidden shell metacharacters."
+          error: "Command execution blocked: invalid command or unsafe characters detected."
         };
       }
 
-      let execCommand = input.command;
-      let execArgs = input.args ?? [];
+      const allowedCommands = new Set(
+        (process.env.XYAVORYX_SHELL_ALLOWLIST ?? "echo,cat,ls,dir,pwd,whoami,git,node,npm,pnpm,docker")
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean)
+      );
+
+      if (!allowedCommands.has(command)) {
+        return {
+          stdout: "",
+          stderr: "",
+          exitCode: null,
+          error: `Command execution blocked: command not allowed (${command}).`
+        };
+      }
+
+      let execCommand = command;
+      let execArgs = [...args];
 
       // Docker Container Sandbox Execution Mode
       if (process.env.XYAVORYX_SANDBOX_DOCKER === "true") {
@@ -50,33 +69,50 @@ export const ShellExecutorTool: XyaVoryxTool<z.infer<typeof inputSchema>, ShellE
         execArgs = [
           "run",
           "--rm",
+          "--network=none",
           "-v", `${workspaceDir}:/workspace`,
           "-w", "/workspace",
           image,
-          "sh", "-c", `${input.command} ${execArgs.join(" ")}`
+          command,
+          ...args
         ];
       }
 
-      const result = spawnSync(execCommand, execArgs, {
-        shell: true,
-        encoding: "utf8",
-        timeout: 10000
+      return await new Promise<ShellExecutorOutput>((resolve) => {
+        const child = spawn(execCommand, execArgs, {
+          shell: false,
+          windowsHide: true,
+          stdio: ["ignore", "pipe", "pipe"],
+          signal: context.signal
+        });
+
+        let stdout = "";
+        let stderr = "";
+
+        child.stdout.on("data", (chunk) => {
+          stdout += String(chunk);
+        });
+        child.stderr.on("data", (chunk) => {
+          stderr += String(chunk);
+        });
+
+        child.on("error", (error) => {
+          resolve({
+            stdout,
+            stderr,
+            exitCode: null,
+            error: error.message
+          });
+        });
+
+        child.on("close", (code) => {
+          resolve({
+            stdout,
+            stderr,
+            exitCode: code
+          });
+        });
       });
-
-      if (result.error) {
-        return {
-          stdout: result.stdout ?? "",
-          stderr: result.stderr ?? "",
-          exitCode: result.status,
-          error: result.error.message
-        };
-      }
-
-      return {
-        stdout: result.stdout ?? "",
-        stderr: result.stderr ?? "",
-        exitCode: result.status
-      };
     } catch (err) {
       return {
         stdout: "",

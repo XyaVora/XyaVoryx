@@ -19,6 +19,8 @@
     "public:finalize": "node scripts/publish-public.mjs --finalize-release",
     "release:readiness": "node scripts/release/check-release-readiness.mjs",
     "release:manifest": "node scripts/release/generate-release-manifest.mjs",
+    "release:source-match": "node scripts/release/check-public-source-match.mjs",
+    "release:trace": "node scripts/release/write-release-trace.mjs",
     "bugbot:review": "tsx scripts/bugbot/pr-review.ts",
     "bugbot:ai-review": "tsx scripts/bugbot/ai-pr-review.ts",
     "bugbot:clean": "tsx scripts/bugbot/pr-review.ts --clean"

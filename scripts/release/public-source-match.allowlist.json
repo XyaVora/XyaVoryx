@@ -1,0 +1,25 @@
+{
+  "onlyPrivate": [
+    ".cursor/BUGBOT.md",
+    "CHANGELOG.md",
+    "README-public.md",
+    "RELEASE.md",
+    "ROADMAP.md",
+    "SECURITY.md",
+    "SYSTEM_DESIGN.md",
+    "docs/README.md",
+    "docs/bugbot/README.md",
+    "docs/runtime/INCIDENT_PLAYBOOK.md",
+    "docs/runtime/README.md",
+    "docs/runtime/RELEASE_RUNBOOK.md",
+    "public.manifest.json",
+    "scripts/build_public.mjs",
+    "scripts/publish-public.mjs"
+  ],
+  "onlyPublic": [
+    "build-report.json"
+  ],
+  "modified": [
+    "README.md"
+  ]
+}

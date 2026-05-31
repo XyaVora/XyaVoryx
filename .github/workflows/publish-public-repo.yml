@@ -70,6 +70,8 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
           RELEASE_SCOPE: ${{ inputs.release_scope }}
           RELEASE_READINESS_REPORT_PATH: release-readiness-report.json
+          PUBLIC_SYNC_REPO_URL: https://github.com/${{ inputs.target_repo }}.git
+          PUBLIC_SYNC_TARGET_BRANCH: ${{ inputs.target_branch }}
         run: corepack pnpm release:readiness
 
       - name: Upload Release Readiness Report
@@ -77,6 +79,12 @@ jobs:
         with:
           name: release-readiness-report
           path: release-readiness-report.json
+
+      - name: Upload Public Source Match Report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: public-source-match-report
+          path: public-source-match-report.json
 
   publish:
     needs: preflight
@@ -128,9 +136,13 @@ jobs:
           git add -A
           if git diff --cached --quiet; then
             echo "No public changes to publish."
+            echo "PUBLIC_COMMIT_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+            echo "PUBLISHED_NEW_COMMIT=0" >> "$GITHUB_ENV"
           else
             git commit -m "chore(release): sync public snapshot from private source"
             git push origin "$TARGET_BRANCH"
+            echo "PUBLIC_COMMIT_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+            echo "PUBLISHED_NEW_COMMIT=1" >> "$GITHUB_ENV"
           fi
 
       - name: Create and Push Public Release Tag
@@ -149,3 +161,19 @@ jobs:
           fi
           git tag -a "$RELEASE_TAG" -m "Release $RELEASE_TAG"
           git push origin "$RELEASE_TAG"
+
+      - name: Generate Release Trace Manifest
+        env:
+          PRIVATE_COMMIT_SHA: ${{ github.sha }}
+          TARGET_REPO: ${{ inputs.target_repo }}
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          PUBLIC_COMMIT_SHA: ${{ env.PUBLIC_COMMIT_SHA }}
+        run: |
+          corepack pnpm release:trace -- --output release-trace.json --private-repo XyaVora/xyavoryx-private --public-repo "$TARGET_REPO" --private-commit "$PRIVATE_COMMIT_SHA" --public-commit "$PUBLIC_COMMIT_SHA" --release-tag "$RELEASE_TAG" --target-branch "$TARGET_BRANCH"
+
+      - name: Upload Release Trace Manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-trace
+          path: release-trace.json

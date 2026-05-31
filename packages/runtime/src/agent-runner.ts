@@ -1277,7 +1277,9 @@ export class AgentRunner {
   }
 
   private async triggerRollback(caseId: string, emitEvent: Function): Promise<void> {
-    const backupDir = path.resolve(process.cwd(), ".xyavoryx-backup", caseId);
+    const workspaceRoot = path.resolve(process.cwd());
+    const backupRoot = path.resolve(workspaceRoot, ".xyavoryx-backup");
+    const backupDir = path.resolve(backupRoot, caseId);
     const manifestPath = path.join(backupDir, "manifest.json");
 
     if (fs.existsSync(manifestPath)) {
@@ -1286,16 +1288,34 @@ export class AgentRunner {
         const manifest: Record<string, string> = JSON.parse(manifestContent);
 
         for (const [originalPath, backupFilename] of Object.entries(manifest)) {
-          const backupFilePath = path.join(backupDir, backupFilename);
+          const resolvedOriginalPath = path.resolve(originalPath);
+          const resolvedBackupFilePath = path.resolve(backupDir, backupFilename);
+
+          if (!this.isPathWithin(workspaceRoot, resolvedOriginalPath)) {
+            this.deps.logger.warn(`[ROLLBACK] Skip restore outside workspace: ${resolvedOriginalPath}`);
+            continue;
+          }
+
+          if (!this.isPathWithin(backupDir, resolvedBackupFilePath)) {
+            this.deps.logger.warn(`[ROLLBACK] Skip restore with invalid backup path: ${resolvedBackupFilePath}`);
+            continue;
+          }
+
+          if (!this.isPathWithin(backupRoot, backupDir)) {
+            this.deps.logger.error(`[ROLLBACK] Invalid backup directory: ${backupDir}`);
+            break;
+          }
+
+          const backupFilePath = resolvedBackupFilePath;
           if (fs.existsSync(backupFilePath)) {
             const originalContent = fs.readFileSync(backupFilePath, "utf8");
-            fs.writeFileSync(originalPath, originalContent, "utf8");
+            fs.writeFileSync(resolvedOriginalPath, originalContent, "utf8");
             
             emitEvent("workflow.step_recovered" as any, {
               reason: "rollback_restored_file",
-              path: path.relative(process.cwd(), originalPath)
+              path: path.relative(workspaceRoot, resolvedOriginalPath)
             });
-            this.deps.logger.info(`[ROLLBACK] Restored original state of: ${originalPath}`);
+            this.deps.logger.info(`[ROLLBACK] Restored original state of: ${resolvedOriginalPath}`);
           }
         }
       } catch (err) {
@@ -1316,5 +1336,10 @@ export class AgentRunner {
         // Non-blocking cleanup warning
       }
     }
+  }
+
+  private isPathWithin(root: string, target: string): boolean {
+    const relative = path.relative(root, target);
+    return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative) || target === root;
   }
 }
