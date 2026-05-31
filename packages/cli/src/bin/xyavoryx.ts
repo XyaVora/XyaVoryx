@@ -2,6 +2,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
+import * as crypto from "node:crypto";
 import type { PolicyValidationInput, XyaVoryxEvent, AgentConfig, Finding, MemoryStore } from "@xyavoryx/core";
 import { PostgreSqlMemoryStore, FileMemoryStore, InMemoryStore, EncryptedMemoryStore } from "@xyavoryx/memory";
 import {
@@ -34,25 +35,59 @@ function defineAgent(agent: AgentConfig): AgentConfig {
 // Helper to manually load .env file without external dependencies
 function loadEnv(): void {
   const envPath = path.resolve(process.cwd(), ".env");
+  const envEncPath = path.resolve(process.cwd(), ".env.enc");
+  const encryptionKey = process.env.XYAVORYX_ENCRYPTION_KEY;
+
+  if (fs.existsSync(envEncPath) && encryptionKey) {
+    try {
+      const encryptedContent = fs.readFileSync(envEncPath, "utf8");
+      // Derive a standard 256-bit key from the passphrase using SHA-256
+      const key = crypto.createHash("sha256").update(encryptionKey).digest();
+      const parts = encryptedContent.split(":");
+      
+      if (parts.length === 4 && parts[0] === "v1") {
+        const [, ivHex, tagHex, cipherTextHex] = parts;
+        const iv = Buffer.from(ivHex, "hex");
+        const tag = Buffer.from(tagHex, "hex");
+        const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+        decipher.setAuthTag(tag);
+        let decrypted = decipher.update(cipherTextHex, "hex", "utf8");
+        decrypted += decipher.final("utf8");
+
+        const lines = decrypted.split(/\r?\n/);
+        for (const line of lines) {
+          parseEnvLine(line);
+        }
+        return;
+      }
+    } catch (err) {
+      console.log("\x1b[31m[ERROR] Failed to decrypt .env.enc: " + (err instanceof Error ? err.message : String(err)) + "\x1b[0m");
+    }
+  }
+
   if (fs.existsSync(envPath)) {
     const lines = fs.readFileSync(envPath, "utf8").split(/\r?\n/);
     for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) {
-        continue;
-      }
-      const match = trimmed.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
-      if (match) {
-        const key = match[1];
-        let value = match[2] || "";
-        if (value.startsWith('"') && value.endsWith('"')) {
-          value = value.slice(1, -1);
-        } else if (value.startsWith("'") && value.endsWith("'")) {
-          value = value.slice(1, -1);
-        }
-        process.env[key] = value;
-      }
+      parseEnvLine(line);
     }
+  }
+}
+
+function parseEnvLine(line: string): void {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.startsWith("#")) {
+    return;
+  }
+  const match = trimmed.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+  if (match) {
+    const key = match[1];
+    let value = match[2] || "";
+    if (value.startsWith('"') && value.endsWith('"')) {
+      value = value.slice(1, -1);
+    } else if (value.startsWith("'") && value.endsWith("'")) {
+      value = value.slice(1, -1);
+    }
+    process.env[key] = value;
   }
 }
 
