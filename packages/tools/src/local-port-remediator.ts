@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 export interface PortRemediationResult {
   port: number;
@@ -10,6 +10,10 @@ export interface PortRemediationResult {
 
 export class LocalPortRemediator {
   static proposeRemediation(port: number): PortRemediationResult | null {
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return null;
+    }
+
     const isWindows = process.platform === "win32";
     let pid: number | null = null;
     let processInfo: string | null = null;
@@ -18,7 +22,7 @@ export class LocalPortRemediator {
     try {
       if (isWindows) {
         // Query netstat for listening TCP ports on the specified port
-        const output = execSync("netstat -ano", { encoding: "utf8" });
+        const output = execFileSync("netstat", ["-ano"], { encoding: "utf8" });
         const lines = output.split(/\r?\n/);
         
         // Find line matching port, e.g. "  TCP    127.0.0.1:3306         0.0.0.0:0              LISTENING       1492"
@@ -34,7 +38,7 @@ export class LocalPortRemediator {
         if (pid) {
           // Query tasklist to get the name of the process
           try {
-            const taskOutput = execSync(`tasklist /FI "PID eq ${pid}" /NH`, { encoding: "utf8" });
+            const taskOutput = execFileSync("tasklist", ["/FI", `PID eq ${pid}`, "/NH"], { encoding: "utf8" });
             const trimmed = taskOutput.trim();
             if (trimmed && !trimmed.includes("No tasks")) {
               const parts = trimmed.split(/\s+/);
@@ -47,7 +51,7 @@ export class LocalPortRemediator {
       } else {
         // Unix/macOS: lsof -t -i :port
         try {
-          const lsofOutput = execSync(`lsof -t -i :${port}`, { encoding: "utf8" }).trim();
+          const lsofOutput = execFileSync("lsof", ["-t", "-i", `:${port}`], { encoding: "utf8" }).trim();
           if (lsofOutput) {
             pid = parseInt(lsofOutput.split("\n")[0], 10);
           }
@@ -57,7 +61,7 @@ export class LocalPortRemediator {
 
         if (pid) {
           try {
-            processInfo = execSync(`ps -p ${pid} -o comm=`, { encoding: "utf8" }).trim();
+            processInfo = execFileSync("ps", ["-p", String(pid), "-o", "comm="], { encoding: "utf8" }).trim();
           } catch (e) {
             // Ignore ps errors
           }
@@ -80,10 +84,14 @@ export class LocalPortRemediator {
         processInfo: name,
         diff: diffLines.join("\n"),
         apply: async () => {
+          if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) {
+            throw new Error("Invalid PID for remediation.");
+          }
+
           if (isWindows) {
-            execSync(`taskkill /F /PID ${pid}`, { stdio: "ignore" });
+            execFileSync("taskkill", ["/F", "/PID", String(pid)], { stdio: "ignore" });
           } else {
-            execSync(`kill -9 ${pid}`, { stdio: "ignore" });
+            execFileSync("kill", ["-9", String(pid)], { stdio: "ignore" });
           }
         }
       };

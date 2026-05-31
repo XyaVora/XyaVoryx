@@ -31,7 +31,7 @@ export const FileSystemTool: XyaVoryxTool<z.infer<typeof inputSchema>, FileSyste
     const workspaceRoot = path.resolve(process.cwd());
 
     // Path Traversal Mitigation: Ensure target path remains strictly within authorized workspace root
-    if (!resolvedPath.startsWith(workspaceRoot)) {
+    if (!isPathWithin(workspaceRoot, resolvedPath)) {
       return {
         success: false,
         error: `Access denied: Path '${input.path}' lies outside the authorized workspace directory.`
@@ -149,3 +149,11 @@ export const FileSystemTool: XyaVoryxTool<z.infer<typeof inputSchema>, FileSyste
     }
   }
 };
+
+function isPathWithin(root: string, target: string): boolean {
+  const relative = path.relative(root, target);
+  if (relative === "") {
+    return true;
+  }
+  return !relative.startsWith("..") && !path.isAbsolute(relative);
+}

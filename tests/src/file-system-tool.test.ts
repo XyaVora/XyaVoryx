@@ -61,6 +61,24 @@ describe("System and OS Tools Integration", () => {
       expect(readResult.success).toBe(false);
       expect(readResult.error).toMatch(/file not found/i);
     });
+
+    it("should deny path traversal via workspace prefix confusion", async () => {
+      const workspaceRoot = path.resolve(process.cwd());
+      const parent = path.dirname(workspaceRoot);
+      const siblingLikePrefix = `${path.basename(workspaceRoot)}-evil`;
+      const outsidePath = path.resolve(parent, siblingLikePrefix, "secret.txt");
+
+      const result = await FileSystemTool.run(
+        {
+          operation: "read",
+          path: outsidePath
+        },
+        {} as any
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/access denied/i);
+    });
   });
 
   describe("ShellExecutorTool", () => {
