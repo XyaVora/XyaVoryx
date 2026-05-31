@@ -3,6 +3,12 @@ import type { PolicyConfig } from "./policy";
 import type { ExecutionTrace } from "./trace";
 import type { WorkflowStep } from "./workflow";
 
+export interface AutonomousGuardrails {
+  enabled?: boolean;
+  maxRuntimeMs?: number;
+  maxToolCalls?: number;
+}
+
 export interface AgentConfig {
   id?: string;
   name: string;
@@ -15,6 +21,7 @@ export interface AgentConfig {
   policyProfile?: string;
   policies?: PolicyConfig;
   plannerMode?: "deterministic" | "autonomous";
+  autonomousGuardrails?: AutonomousGuardrails;
 }
 
 export interface AgentInput {

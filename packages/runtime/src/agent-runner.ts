@@ -101,6 +101,31 @@ export class AgentRunner {
 
     const isAutonomous = agent.plannerMode === "autonomous" || !agent.workflow || agent.workflow.length === 0;
     if (isAutonomous) {
+      if (!this.isAutonomousModeEnabled(agent)) {
+        const completedAt = this.deps.runtimeContext.now();
+        emitEvent("policy.blocked", {
+          tool: "autonomous.planner",
+          reason: "autonomous_mode_disabled"
+        });
+        emitEvent("agent.status_changed", { status: "blocked" });
+        emitEvent("agent.failed", { status: "blocked" });
+        traceRecorder.complete(completedAt);
+        const trace = traceRecorder.snapshot();
+        await this.deps.memory.saveTrace(caseId, trace);
+        await this.deps.memory.updateSessionStatus(sessionId, "blocked");
+        return {
+          agentName: agent.name,
+          caseId,
+          sessionId,
+          status: "blocked",
+          findings: [],
+          trace,
+          report: "Autonomous mode is disabled by guardrail policy.",
+          metadata: {
+            reason: "autonomous_mode_disabled"
+          }
+        };
+      }
       return this.runAutonomous(agent, input, sessionId, caseId, startedAt, policy, emitEvent, traceRecorder);
     }
 
@@ -1018,6 +1043,8 @@ export class AgentRunner {
     }
 
     const planner = new AutonomousPlanner(provider);
+    const maxRuntimeMs = this.resolveAutonomousMaxRuntimeMs(agent);
+    const maxToolCalls = this.resolveAutonomousMaxToolCalls(agent);
     const maxIterations = typeof agent.maxIterations === "number" && agent.maxIterations > 0
       ? Math.floor(agent.maxIterations)
       : 5;
@@ -1031,6 +1058,26 @@ export class AgentRunner {
     const executionHistoryLog: string[] = [];
 
     while (iterations < maxIterations) {
+      const elapsedMs = Date.parse(this.deps.runtimeContext.now()) - Date.parse(startedAt);
+      if (elapsedMs > maxRuntimeMs) {
+        status = "failed";
+        emitEvent("workflow.recovery_failed" as any, {
+          reason: "autonomous_runtime_budget_exceeded",
+          maxRuntimeMs,
+          elapsedMs
+        });
+        break;
+      }
+
+      if (executionCount >= maxToolCalls) {
+        status = "failed";
+        emitEvent("workflow.recovery_failed" as any, {
+          reason: "autonomous_tool_call_budget_exceeded",
+          maxToolCalls
+        });
+        break;
+      }
+
       iterations += 1;
 
       const observations = await this.deps.memory.getObservations(caseId);
@@ -1336,6 +1383,50 @@ export class AgentRunner {
         // Non-blocking cleanup warning
       }
     }
+  }
+
+  private isAutonomousModeEnabled(agent: AgentConfig): boolean {
+    if (typeof agent.autonomousGuardrails?.enabled === "boolean") {
+      return agent.autonomousGuardrails.enabled;
+    }
+
+    if (process.env.XYAVORYX_ENABLE_AUTONOMOUS === "true") {
+      return true;
+    }
+
+    if (process.env.NODE_ENV === "production") {
+      return false;
+    }
+
+    return true;
+  }
+
+  private resolveAutonomousMaxRuntimeMs(agent: AgentConfig): number {
+    const fromAgent = agent.autonomousGuardrails?.maxRuntimeMs;
+    if (typeof fromAgent === "number" && fromAgent > 0) {
+      return Math.floor(fromAgent);
+    }
+
+    const fromEnv = Number(process.env.XYAVORYX_AUTONOMOUS_MAX_RUNTIME_MS ?? "");
+    if (Number.isFinite(fromEnv) && fromEnv > 0) {
+      return Math.floor(fromEnv);
+    }
+
+    return 120000;
+  }
+
+  private resolveAutonomousMaxToolCalls(agent: AgentConfig): number {
+    const fromAgent = agent.autonomousGuardrails?.maxToolCalls;
+    if (typeof fromAgent === "number" && fromAgent > 0) {
+      return Math.floor(fromAgent);
+    }
+
+    const fromEnv = Number(process.env.XYAVORYX_AUTONOMOUS_MAX_TOOL_CALLS ?? "");
+    if (Number.isFinite(fromEnv) && fromEnv > 0) {
+      return Math.floor(fromEnv);
+    }
+
+    return 20;
   }
 
   private isPathWithin(root: string, target: string): boolean {

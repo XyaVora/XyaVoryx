@@ -87,13 +87,13 @@ export class AutonomousPlanner {
 
     // Try parsing the entire content first
     try {
-      return JSON.parse(cleanContent) as AutonomousDecision;
+      return this.validateDecisionShape(JSON.parse(cleanContent));
     } catch (e) {
       // If it fails, try finding a JSON block {...} in the text
       const match = /\{[\s\S]*\}/.exec(cleanContent);
       if (match) {
         try {
-          return JSON.parse(match[0]) as AutonomousDecision;
+          return this.validateDecisionShape(JSON.parse(match[0]));
         } catch (innerErr) {
           // Fallback on JSON parse error
         }
@@ -106,5 +106,40 @@ export class AutonomousPlanner {
         report: `Investigation aborted due to planner parsing failure. LLM output was:\n\n${cleanContent}`
       };
     }
+  }
+
+  private validateDecisionShape(candidate: unknown): AutonomousDecision {
+    if (!candidate || typeof candidate !== "object") {
+      throw new Error("Autonomous decision is not an object.");
+    }
+
+    const decision = candidate as Record<string, unknown>;
+    const thought = typeof decision.thought === "string" ? decision.thought : "";
+    const action = decision.action;
+
+    if (action !== "call" && action !== "finish") {
+      throw new Error("Autonomous decision action must be 'call' or 'finish'.");
+    }
+
+    if (action === "call") {
+      if (typeof decision.tool !== "string" || decision.tool.trim().length === 0) {
+        throw new Error("Autonomous decision with action=call must include tool.");
+      }
+      if (!Object.prototype.hasOwnProperty.call(decision, "input")) {
+        throw new Error("Autonomous decision with action=call must include input.");
+      }
+    }
+
+    if (action === "finish" && typeof decision.report !== "string") {
+      throw new Error("Autonomous decision with action=finish must include report.");
+    }
+
+    return {
+      thought,
+      action,
+      tool: typeof decision.tool === "string" ? decision.tool : undefined,
+      input: decision.input,
+      report: typeof decision.report === "string" ? decision.report : undefined
+    };
   }
 }

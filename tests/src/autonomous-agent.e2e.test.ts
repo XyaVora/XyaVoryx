@@ -127,4 +127,95 @@ describe("Autonomous Agent end-to-end", () => {
     expect(result.trace.toolExecutions[0]?.status).toBe("blocked");
     expect(result.trace.events.some((e) => e.type === "policy.blocked")).toBe(true);
   });
+
+  it("blocks autonomous mode by default in production environment", async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalAutonomousFlag = process.env.XYAVORYX_ENABLE_AUTONOMOUS;
+    process.env.NODE_ENV = "production";
+    delete process.env.XYAVORYX_ENABLE_AUTONOMOUS;
+
+    const memory = new InMemoryStore();
+    const runtime = new XyaVoryx({
+      memory,
+      runtimeContext: new DeterministicRuntimeContext(Date.UTC(2026, 0, 1, 0, 0, 0, 0))
+    });
+    runtime.registerProvider(new MockLLMProvider());
+    runtime.registerTool(EmailHeaderAnalyzerTool);
+
+    const result = await runtime.runAgent(
+      {
+        id: "auto-agent-prod-off",
+        name: "Autonomous Prod Off Agent",
+        goal: "Guard autonomous mode in production",
+        tools: ["email.header.analyzer"],
+        plannerMode: "autonomous"
+      },
+      {
+        task: "Analyze email",
+        rawInput: SAMPLE_EMAIL
+      }
+    );
+
+    process.env.NODE_ENV = originalNodeEnv;
+    if (originalAutonomousFlag === undefined) {
+      delete process.env.XYAVORYX_ENABLE_AUTONOMOUS;
+    } else {
+      process.env.XYAVORYX_ENABLE_AUTONOMOUS = originalAutonomousFlag;
+    }
+
+    expect(result.status).toBe("blocked");
+    expect(result.report).toMatch(/disabled by guardrail/i);
+  });
+
+  it("enforces autonomous tool call budget", async () => {
+    const memory = new InMemoryStore();
+    const runtime = new XyaVoryx({
+      memory,
+      runtimeContext: new DeterministicRuntimeContext(Date.UTC(2026, 0, 1, 0, 0, 0, 0))
+    });
+
+    runtime.registerProvider(
+      new MockLLMProvider({
+        responses: {
+          "No observations recorded yet.": JSON.stringify({
+            thought: "Analyze headers first.",
+            action: "call",
+            tool: "email.header.analyzer",
+            input: { rawEmail: SAMPLE_EMAIL }
+          }),
+          "Tool email.header.analyzer completed": JSON.stringify({
+            thought: "Now extract IOCs.",
+            action: "call",
+            tool: "ioc.extractor",
+            input: { text: SAMPLE_EMAIL }
+          })
+        }
+      })
+    );
+
+    runtime.registerTool(EmailHeaderAnalyzerTool);
+    runtime.registerTool(IOCExtractorTool);
+
+    const result = await runtime.runAgent(
+      {
+        id: "auto-agent-budget",
+        name: "Autonomous Budget Agent",
+        goal: "Enforce autonomous budget",
+        tools: ["email.header.analyzer", "ioc.extractor"],
+        plannerMode: "autonomous",
+        autonomousGuardrails: {
+          maxToolCalls: 1
+        }
+      },
+      {
+        task: "Analyze email",
+        rawInput: SAMPLE_EMAIL
+      }
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.trace.events.some((e) => e.type === "workflow.recovery_failed")).toBe(true);
+    const failure = result.trace.events.find((e) => e.type === "workflow.recovery_failed");
+    expect(failure?.payload?.reason).toBe("autonomous_tool_call_budget_exceeded");
+  });
 });

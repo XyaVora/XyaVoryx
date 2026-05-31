@@ -7,7 +7,7 @@ import { createXyaVoryx, defineAgent } from "@xyavoryx/sdk";
 
 describe("System and OS Tools Integration", () => {
   describe("FileSystemTool", () => {
-    const testFilePath = path.resolve(process.cwd(), "temp-test-file.txt");
+    const testFilePath = path.resolve(process.cwd(), "temp-fs-tool-test-file.txt");
 
     it("should write, read, and list files", async () => {
       // 1. Write file
@@ -42,7 +42,7 @@ describe("System and OS Tools Integration", () => {
       );
       expect(listResult.success).toBe(true);
       const fileNames = listResult.files?.map((f) => f.name);
-      expect(fileNames).toContain("temp-test-file.txt");
+      expect(fileNames).toContain("temp-fs-tool-test-file.txt");
 
       // Cleanup
       if (fs.existsSync(testFilePath)) {
@@ -67,7 +67,8 @@ describe("System and OS Tools Integration", () => {
     it("should execute shell commands correctly", async () => {
       const result = await ShellExecutorTool.run(
         {
-          command: "echo XyaVoryx_CLI"
+          command: "node",
+          args: ["-e", "process.stdout.write('XyaVoryx_CLI')"]
         },
         {} as any
       );
