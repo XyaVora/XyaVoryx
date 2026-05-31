@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type {
   AgentConfig,
   AgentInput,
@@ -366,6 +368,13 @@ export class AgentRunner {
       emitEvent("agent.completed", { status });
     } else {
       emitEvent("agent.failed", { status });
+    }
+
+    // Rollback Engine Trigger
+    if (status === "failed" || status === "blocked") {
+      await this.triggerRollback(caseId, emitEvent);
+    } else {
+      this.cleanupBackup(caseId);
     }
 
     const completedAt = this.deps.runtimeContext.now();
@@ -1240,6 +1249,13 @@ export class AgentRunner {
       emitEvent("agent.failed", { status });
     }
 
+    // Rollback Engine Trigger
+    if (status === "failed" || status === "blocked") {
+      await this.triggerRollback(caseId, emitEvent);
+    } else {
+      this.cleanupBackup(caseId);
+    }
+
     const completedAt = this.deps.runtimeContext.now();
     traceRecorder.complete(completedAt);
     const trace = traceRecorder.snapshot();
@@ -1258,5 +1274,47 @@ export class AgentRunner {
         stepsExecuted: trace.toolExecutions.length
       }
     };
+  }
+
+  private async triggerRollback(caseId: string, emitEvent: Function): Promise<void> {
+    const backupDir = path.resolve(process.cwd(), ".xyavoryx-backup", caseId);
+    const manifestPath = path.join(backupDir, "manifest.json");
+
+    if (fs.existsSync(manifestPath)) {
+      try {
+        const manifestContent = fs.readFileSync(manifestPath, "utf8");
+        const manifest: Record<string, string> = JSON.parse(manifestContent);
+
+        for (const [originalPath, backupFilename] of Object.entries(manifest)) {
+          const backupFilePath = path.join(backupDir, backupFilename);
+          if (fs.existsSync(backupFilePath)) {
+            const originalContent = fs.readFileSync(backupFilePath, "utf8");
+            fs.writeFileSync(originalPath, originalContent, "utf8");
+            
+            emitEvent("workflow.step_recovered" as any, {
+              reason: "rollback_restored_file",
+              path: path.relative(process.cwd(), originalPath)
+            });
+            this.deps.logger.info(`[ROLLBACK] Restored original state of: ${originalPath}`);
+          }
+        }
+      } catch (err) {
+        this.deps.logger.error(`[ROLLBACK] Failed to restore backups: ${err}`);
+      }
+    }
+
+    this.cleanupBackup(caseId);
+  }
+
+  private cleanupBackup(caseId: string): void {
+    const backupDir = path.resolve(process.cwd(), ".xyavoryx-backup", caseId);
+    if (fs.existsSync(backupDir)) {
+      try {
+        fs.rmSync(backupDir, { recursive: true, force: true });
+        this.deps.logger.info(`[ROLLBACK] Cleaned up temporary backup files for case ${caseId}`);
+      } catch (err) {
+        // Non-blocking cleanup warning
+      }
+    }
   }
 }

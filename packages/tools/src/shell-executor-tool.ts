@@ -39,7 +39,25 @@ export const ShellExecutorTool: XyaVoryxTool<z.infer<typeof inputSchema>, ShellE
         };
       }
 
-      const result = spawnSync(input.command, input.args ?? [], {
+      let execCommand = input.command;
+      let execArgs = input.args ?? [];
+
+      // Docker Container Sandbox Execution Mode
+      if (process.env.XYAVORYX_SANDBOX_DOCKER === "true") {
+        const image = process.env.XYAVORYX_SANDBOX_IMAGE ?? "node:22-alpine";
+        const workspaceDir = process.cwd();
+        execCommand = "docker";
+        execArgs = [
+          "run",
+          "--rm",
+          "-v", `${workspaceDir}:/workspace`,
+          "-w", "/workspace",
+          image,
+          "sh", "-c", `${input.command} ${execArgs.join(" ")}`
+        ];
+      }
+
+      const result = spawnSync(execCommand, execArgs, {
         shell: true,
         encoding: "utf8",
         timeout: 10000
